@@ -263,20 +263,20 @@ fig.add_trace(
     row=1, col=1
 )
 
-# Second subplot: Monthly PV yield/value per MW (bars)
+# Second subplot: Monthly PV energy production (bars)
 fig.add_trace(
-    go.Bar(x=monthly['month_date'], y=monthly['Monthly_PV_Yield_per_MW'], name='Monthly PV Yield MWh/MWp', marker_color='orange'),
+    go.Bar(x=monthly['month_date'], y=monthly['Monthly_PV_Energy_MWh'], name='Monthly PV Energy Production (MWh)', marker_color='orange'),
     row=2, col=1, secondary_y=False
 )
-fig.update_yaxes(title_text='Yield MWh/MWp', row=2, col=1, secondary_y=False)
+fig.update_yaxes(title_text='Energy (MWh)', row=2, col=1, secondary_y=False)
 
 
 fig.add_trace(
     go.Bar(x=monthly['month_date'], y=monthly['Monthly_Value_per_MWp_DC_EUR'], name='PV Market Value (EUR/MWp/Month)', marker_color='goldenrod'),
     row=3, col=1, secondary_y=False
 )
-fig.update_yaxes(title_text='Value per MWp', row=3, col=1)
-fig.update_xaxes(title_text='Month', row=3, col=1, tickangle=45, tickformat='%b %Y')
+fig.update_yaxes(title_text='€ per MWp', row=3, col=1)
+#fig.update_xaxes(title_text='Month', row=3, col=1, tickangle=45, tickformat='%b %Y')
 
 
 # Fourth subplot: Monthly PV Power Weighted DA Price (bar)
@@ -295,9 +295,9 @@ fig.add_trace(
     go.Bar(x=monthly['month_date'], y=monthly['Monthly_Profile_Factor'], name='Profile Factor (%)'),
     row=4, col=1, secondary_y=False
 )
-fig.update_yaxes(title_text='EUR/MWh', row=4, col=1, secondary_y=False)
-fig.update_yaxes(title_text='Profile Factor (%)', row=4, col=1, secondary_y=True)
-fig.update_xaxes(title_text='Month', row=4, col=1, tickangle=45, tickformat='%b %Y')
+fig.update_yaxes(title_text='Profile factor (%)', row=4, col=1, secondary_y=False)
+#fig.update_yaxes(title_text='Profile Factor (%)', row=4, col=1, secondary_y=True)
+fig.update_xaxes(title_text='per month', row=4, col=1, tickangle=45, tickformat='%b %Y')
 
 # Move legend below the plot
 fig.update_layout(
@@ -308,6 +308,9 @@ fig.update_layout(
 
 # Create a separate table figure
 # Format numbers with thousands separators and percentage for profile factor
+# Sort monthly_summary_rounded in reverse chronological order
+monthly_summary_rounded_reversed = monthly_summary_rounded.sort_values('month', ascending=False).reset_index(drop=True)
+
 table_fig = go.Figure(data=[go.Table(
     header=dict(
         values=['Month', 'Total PV Energy (GWh)', 'Installed Capacity (GWp DC) mid-year', 'Value per MWp DC (EUR)', 'Avg DA Price (EUR/MWh)', 'PV Weighted Price (EUR/MWh)', 'Profile Factor'],
@@ -316,13 +319,13 @@ table_fig = go.Figure(data=[go.Table(
     ),
             cells=dict(
             values=[
-                monthly_summary_rounded['month'].astype(str),
-                [format_number(x) for x in monthly_summary_rounded.iloc[:, 1].round(0)],
-                [format_gwp(x) for x in monthly_summary_rounded.iloc[:, 6]],  # Installed Capacity column
-                [format_number(x) for x in monthly_summary_rounded.iloc[:, 2].round(0)],
-                [format_number(x) for x in monthly_summary_rounded.iloc[:, 3].round(0)],
-                [format_number(x) for x in monthly_summary_rounded.iloc[:, 4].round(0)],
-                [format_percentage(x) for x in monthly_summary_rounded.iloc[:, 5]]
+                monthly_summary_rounded_reversed['month'].astype(str),
+                [format_number(x) for x in monthly_summary_rounded_reversed.iloc[:, 1].round(0)],
+                [format_gwp(x) for x in monthly_summary_rounded_reversed.iloc[:, 6]],  # Installed Capacity column
+                [format_number(x) for x in monthly_summary_rounded_reversed.iloc[:, 2].round(0)],
+                [format_number(x) for x in monthly_summary_rounded_reversed.iloc[:, 3].round(0)],
+                [format_number(x) for x in monthly_summary_rounded_reversed.iloc[:, 4].round(0)],
+                [format_percentage(x) for x in monthly_summary_rounded_reversed.iloc[:, 5]]
             ],
         font=dict(size=9),
         align='left',
@@ -338,4 +341,6 @@ table_fig.update_layout(
 # Write both figures to separate files
 fig.write_html('solar_production_plot_v3.html', auto_open=True)
 table_fig.write_html('monthly_summary_table.html', auto_open=True)
+
+
 
