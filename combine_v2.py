@@ -153,28 +153,76 @@ monthly['Monthly_Profile_Factor'] = (monthly['Monthly_PV_Power_Weighted_DA_Price
 # Normalize by installed capacity
 monthly['Monthly_PV_Yield_per_MW'] = monthly['Monthly_PV_Energy_MWh'] / monthly['Monthly_Installed_Capacity_MW']
 
+# Calculate yearly totals
+df_combined['year'] = df_combined['time'].dt.year
+yearly_totals = (
+    df_combined.groupby('year').apply(
+        lambda x: pd.Series({
+            'Total_PV_Energy_MWh': x['Solar_production_MW'].sum(),
+            'Total_PV_Value_EUR': x['Solar_value'].sum(),
+            'Avg_Installed_Capacity_MW': x['installed_capacity_MW'].mean(),
+            'Yearly_Value_per_MWp_EUR': x['Solar_value'].sum() / x['installed_capacity_MW'].mean(),
+            'Yearly_Yield_per_MWp_MWh': x['Solar_production_MW'].sum() / x['installed_capacity_MW'].mean(),
+            'Yearly_Weighted_Price_EUR_MWh': (x['Solar_production_MW'] * x['DA_price']).sum() / x['Solar_production_MW'].sum() if x['Solar_production_MW'].sum() > 0 else float('nan')
+        })
+    )
+    .reset_index()
+)
+
+# Prepare table data
+table_data = monthly.copy()
+table_data['Month'] = table_data['month_date'].dt.strftime('%b %Y')
+table_data['Yield_per_MWp_Month'] = table_data['Monthly_PV_Yield_per_MW'].round(1)
+table_data['Value_per_MWp_Month'] = table_data['Monthly_Value_per_MWp_DC_EUR'].round(1)
+table_data['Weighted_Price_EUR_MWh'] = table_data['Monthly_PV_Power_Weighted_DA_Price'].round(1)
+
+# Add yearly totals to table
+yearly_table_data = []
+for _, year_row in yearly_totals.iterrows():
+    yearly_table_data.append({
+        'Month': f"{year_row['year']} TOTAL",
+        'Yield_per_MWp_Month': round(year_row['Yearly_Yield_per_MWp_MWh'], 1),
+        'Value_per_MWp_Month': round(year_row['Yearly_Value_per_MWp_EUR'], 1),
+        'Weighted_Price_EUR_MWh': round(year_row['Yearly_Weighted_Price_EUR_MWh'], 1)
+    })
+
+# Combine monthly and yearly data for table
+all_table_data = pd.concat([
+    table_data[['Month', 'Yield_per_MWp_Month', 'Value_per_MWp_Month', 'Weighted_Price_EUR_MWh']],
+    pd.DataFrame(yearly_table_data)
+], ignore_index=True)
+
+# Print yearly totals for verification
+print("\nYearly Totals:")
+print(yearly_totals[['year', 'Yearly_Yield_per_MWp_MWh', 'Yearly_Value_per_MWp_EUR', 'Yearly_Weighted_Price_EUR_MWh']].round(1))
 
 # --- Create subplots ---
 fig = make_subplots(
-    rows=3, cols=1, shared_xaxes=False, vertical_spacing=0.10,
+    rows=3, cols=2, 
+    shared_xaxes=False, 
+    vertical_spacing=0.10,
+    horizontal_spacing=0.15,
     subplot_titles=(
-        'Monthly PV Yield',
-        'Market Value per MWp installed',
-        'PV  Weighted DA Price (EUR/MWh), Avg DA Price, and Profile Factor (%)'
+        'Monthly PV Yield', 'Monthly Summary Table',
+        'Market Value per MWp installed', '',
+        'PV Weighted DA Price (EUR/MWh), Avg DA Price, and Profile Factor (%)', ''
     ),
-    specs=[[{"secondary_y": True}], [{"secondary_y": False}], [{"secondary_y": True}]]
+    specs=[
+        [{"secondary_y": True}, {"type": "table"}],
+        [{"secondary_y": False}, {"type": "table"}],
+        [{"secondary_y": True}, {"type": "table"}]
+    ],
+    column_widths=[0.7, 0.3]
 )
 
-
-
-# Second subplot: Monthly PV yield/value per MW (bars)
+# First subplot: Monthly PV yield (bars)
 fig.add_trace(
     go.Bar(x=monthly['month_date'], y=monthly['Monthly_PV_Yield_per_MW'], name='Monthly PV Yield MWh/MWp', marker_color='orange'),
     row=1, col=1, secondary_y=False
 )
 fig.update_yaxes(title_text='Yield MWh/MWp', row=1, col=1, secondary_y=False)
 
-
+# Second subplot: Monthly PV yield/value per MW (bars)
 fig.add_trace(
     go.Bar(x=monthly['month_date'], y=monthly['Monthly_Value_per_MWp_DC_EUR'], name='PV Market Value (EUR/MWp/Month)', marker_color='goldenrod'),
     row=2, col=1, secondary_y=False
@@ -182,9 +230,7 @@ fig.add_trace(
 fig.update_yaxes(title_text='Value per MWp', row=2, col=1)
 fig.update_xaxes(title_text='Month', row=2, col=1, tickangle=45, tickformat='%b %Y')
 
-
 # Third subplot: Monthly PV Power Weighted DA Price (bar)
-# Add average DA price as a line
 fig.add_trace(
     go.Bar(x=monthly['month_date'], y=monthly['Monthly_Avg_DA_Price'], name='Avg DA Price (EUR/MWh)', marker_color='royalblue'),
     row=3, col=1, secondary_y=False
@@ -203,11 +249,34 @@ fig.update_yaxes(title_text='EUR/MWh', row=3, col=1, secondary_y=False)
 fig.update_yaxes(title_text='Profile Factor (%)', row=3, col=1, secondary_y=True)
 fig.update_xaxes(title_text='Month', row=3, col=1, tickangle=45, tickformat='%b %Y')
 
+# Add table to the right column
+fig.add_trace(
+    go.Table(
+        header=dict(
+            values=['Month', 'Yield in MWh/MWp', 'Value in €/MWp', 'Weighted DA Price €/MWh'],
+            font=dict(size=10),
+            align="left"
+        ),
+        cells=dict(
+            values=[
+                all_table_data['Month'],
+                all_table_data['Yield_per_MWp_Month'].round(1),
+                all_table_data['Value_per_MWp_Month'].round(1),
+                all_table_data['Weighted_Price_EUR_MWh'].round(1)
+            ],
+            font=dict(size=9),
+            align="left",
+            height=25
+        )
+    ),
+    row=1, col=2
+)
+
 # Move legend below the plot
 fig.update_layout(
-    title_text='Monthly PV Yield',
+    title_text='Monthly PV Yield and Market Value Analysis',
     legend=dict(orientation='h', yanchor='bottom', y=-0.25, xanchor='center', x=0.5),
-    margin=dict(b=120)
+    margin=dict(b=120, r=50)
 )
 
 fig.write_html('solar_production_plot_v2.html', auto_open=True)

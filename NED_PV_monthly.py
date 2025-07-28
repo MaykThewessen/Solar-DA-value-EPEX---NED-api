@@ -18,7 +18,7 @@ daysstep    = 6                 # De API kan om een of andere reden maar 144 dat
 if not os.path.exists('data'):
     os.makedirs('data')
 
-start_date = date(2022, 1, 1)
+start_date = date(2019, 1, 1)
 end_date = date.today()
 
 url = "https://api.ned.nl/v1/utilizations"

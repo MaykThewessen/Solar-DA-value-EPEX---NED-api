@@ -41,7 +41,7 @@ data_dir = 'data/'
 if not os.path.exists(data_dir):
     os.makedirs(data_dir)
 
-start_year = 2022
+start_year = 2019
 start_month = 1
 
 today = datetime.date.today()
