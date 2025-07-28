@@ -1,3 +1,5 @@
+![image](https://github.com/user-attachments/assets/575ac8bf-bdd9-4bd3-a403-a1607bd4e690)
+
 # Solar DA Value Analysis
 
 This repository analyzes the value of solar PV production in the Netherlands using EPEX spot prices and PV production data from NED.nl. It combines, processes, and visualizes data to provide insights into monthly and yearly PV yield, market value, and profile factors.
