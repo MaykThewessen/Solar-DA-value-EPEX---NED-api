@@ -240,7 +240,7 @@ fig = make_subplots(
 fig.add_trace(
     go.Table(
         header=dict(
-            values=['Year', 'Total PV Energy (GWh)', 'Installed Capacity (GWp DC)', 'kWh/kWp Produced', 'Value per MWp DC (EUR)', 'Avg DA Price (EUR/MWh)', 'PV Weighted Price (EUR/MWh)', 'Profile Factor (%)'],
+            values=['Year', 'Total PV Energy (GWh)', 'Installed Capacity (GWp DC) mid-year', 'kWh/kWp Produced', 'Value per MWp DC (EUR)', 'Avg DA Price (EUR/MWh)', 'PV Weighted Price (EUR/MWh)', 'Profile Factor (%)'],
             font=dict(size=10),
             align='left'
         ),
@@ -313,7 +313,7 @@ monthly_summary_rounded_reversed = monthly_summary_rounded.sort_values('month', 
 
 table_fig = go.Figure(data=[go.Table(
     header=dict(
-        values=['Month', 'Total PV Energy (GWh)', 'Installed Capacity (GWp DC) mid-year', 'Value per MWp DC (EUR)', 'Avg DA Price (EUR/MWh)', 'PV Weighted Price (EUR/MWh)', 'Profile Factor'],
+        values=['Month', 'Total PV Energy (GWh)', 'Installed Capacity (GWp DC) month avg', 'Value per MWp DC (EUR)', 'Avg DA Price (EUR/MWh)', 'PV Weighted Price (EUR/MWh)', 'Profile Factor'],
         font=dict(size=10),
         align='left'
     ),
