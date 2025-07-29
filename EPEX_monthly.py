@@ -2,7 +2,7 @@
 import pandas as pd
 #import matplotlib.pyplot as plt
 import numpy as np
-import datetime
+from datetime import date, timedelta
 from entsoe import EntsoeRawClient
 from entsoe import EntsoePandasClient
 
@@ -44,7 +44,7 @@ if not os.path.exists(data_dir):
 start_year = 2019
 start_month = 1
 
-today = datetime.date.today()
+today = date.today()
 end_year = today.year
 end_month = today.month
 

@@ -240,7 +240,7 @@ fig = make_subplots(
 fig.add_trace(
     go.Table(
         header=dict(
-            values=['Year', 'Total PV Energy (GWh)', 'Installed Capacity (GWp DC) mid-year', 'kWh/kWp Produced', 'Value per MWp DC (EUR)', 'Avg DA Price (EUR/MWh)', 'PV Weighted Price (EUR/MWh)', 'Profile Factor (%)'],
+            values=['Year', 'PV Energy produced (GWh/y)', 'Installed PV Capacity in NL (GWp) mid-year', 'kWh/kWp produced', 'Market value (EUR/MWp)', 'Day-Ahead linear avg price (EUR/MWh)', 'PV-profile wighted price (EUR/MWh)', 'Profile Factor of PV (%)'],
             font=dict(size=10),
             align='left'
         ),
@@ -265,17 +265,17 @@ fig.add_trace(
 
 # Second subplot: Monthly PV energy production (bars)
 fig.add_trace(
-    go.Bar(x=monthly['month_date'], y=monthly['Monthly_PV_Energy_MWh'], name='Monthly PV Energy Production (MWh)', marker_color='orange'),
+    go.Bar(x=monthly['month_date'], y=monthly['Monthly_PV_Energy_MWh']/1000, name='Monthly PV Energy Production (GWh)', marker_color='orange'),
     row=2, col=1, secondary_y=False
 )
-fig.update_yaxes(title_text='Energy (MWh)', row=2, col=1, secondary_y=False)
+fig.update_yaxes(title_text='Energy (GWh)', row=2, col=1, secondary_y=False)
 
 
 fig.add_trace(
     go.Bar(x=monthly['month_date'], y=monthly['Monthly_Value_per_MWp_DC_EUR'], name='PV Market Value (EUR/MWp/Month)', marker_color='goldenrod'),
     row=3, col=1, secondary_y=False
 )
-fig.update_yaxes(title_text='€ per MWp', row=3, col=1)
+fig.update_yaxes(title_text='EUR per MWp', row=3, col=1)
 #fig.update_xaxes(title_text='Month', row=3, col=1, tickangle=45, tickformat='%b %Y')
 
 
@@ -313,7 +313,7 @@ monthly_summary_rounded_reversed = monthly_summary_rounded.sort_values('month', 
 
 table_fig = go.Figure(data=[go.Table(
     header=dict(
-        values=['Month', 'Total PV Energy (GWh)', 'Installed Capacity (GWp DC) month avg', 'Value per MWp DC (EUR)', 'Avg DA Price (EUR/MWh)', 'PV Weighted Price (EUR/MWh)', 'Profile Factor'],
+        values=['Month', 'PV Energy produced (GWh)', 'Installed Capacity (GWp) month-avg', 'Market value (EUR/MWp)', 'Day-Ahead linear average price (EUR/MWh)', 'PV-profile Weighted price (EUR/MWh)', 'Profile Factor of PV (%)'],
         font=dict(size=10),
         align='left'
     ),
