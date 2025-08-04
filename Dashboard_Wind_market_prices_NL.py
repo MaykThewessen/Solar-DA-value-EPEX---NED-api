@@ -211,7 +211,7 @@ yearly_summary_for_table = yearly_totals.copy()
 yearly_summary_for_table['Yearly_Wind_Energy_GWh'] = yearly_summary_for_table['Yearly_Wind_Energy_MWh'] / 1000
 yearly_summary_for_table['Yearly_Installed_Capacity_MW_AC'] = yearly_summary_for_table['Yearly_Installed_Capacity_MW']
 # Calculate MWh/MW installed produced
-yearly_summary_for_table['Yearly_MWh_per_MW'] = yearly_summary_for_table['Yearly_Wind_Energy_MWh'] / (yearly_summary_for_table['Yearly_Installed_Capacity_MW_AC']*1000 )
+yearly_summary_for_table['Yearly_MWh_per_MW'] = yearly_summary_for_table['Yearly_Wind_Energy_MWh'] / (yearly_summary_for_table['Yearly_Installed_Capacity_MW_AC'] )
 yearly_summary_for_table = yearly_summary_for_table.round(0)
 
 # Helper functions for formatting
@@ -223,7 +223,7 @@ def format_number(x):
 def format_mwp(x):
     if pd.isna(x):
         return ''
-    return f"{x:,.0f}"
+    return f"{x:,.0f}".replace(',', '.')
 
 def format_percentage(x):
     if pd.isna(x):
@@ -252,24 +252,24 @@ fig = make_subplots(
 
 
 
-# First subplot: Yearly summary table
+# First subplot: Yearly summary table (rows reversed)
 fig.add_trace(
     go.Table(
         header=dict(
-            values=['Year', 'Wind Energy produced (GWh/y)', 'Installed Wind Capacity in NL (GW) mid-year', 'MWh yield / MW installed', 'Annual Market value (EUR/MW/y)', 'Day-Ahead linear avg price (EUR/MWh)', 'Wind-profile weighted price (EUR/MWh)', 'Profile Factor of Wind (%)'],
+            values=['Year', 'Wind Energy produced (GWh/y)', 'Installed Wind Capacity in NL (MW) mid-year', 'MWh yield / MW installed', 'Annual Market value (EUR/MW/y)', 'Day-Ahead linear avg price (EUR/MWh)', 'Wind-profile weighted price (EUR/MWh)', 'Profile Factor of Wind (%)'],
             font=dict(size=10),
             align='left'
         ),
         cells=dict(
             values=[
-                yearly_summary_for_table['year'].astype(str),
-                [format_number(x) for x in yearly_summary_for_table['Yearly_Wind_Energy_GWh']],
-                [format_mwp(x) for x in yearly_summary_for_table['Yearly_Installed_Capacity_MW_AC']],
-                [format_number(x) for x in yearly_summary_for_table['Yearly_MWh_per_MW']],
-                [format_number(x) for x in yearly_summary_for_table['Yearly_Value_per_MW_AC_EUR']],
-                [format_number(x) for x in yearly_summary_for_table['Yearly_Avg_DA_Price']],
-                [format_number(x) for x in yearly_summary_for_table['Yearly_Wind_Weighted_Price']],
-                [format_percentage(x) for x in yearly_summary_for_table['Yearly_Profile_Factor']]
+                yearly_summary_for_table['year'].astype(str)[::-1],
+                [format_number(x) for x in yearly_summary_for_table['Yearly_Wind_Energy_GWh'][::-1]],
+                [format_mwp(x) for x in yearly_summary_for_table['Yearly_Installed_Capacity_MW_AC'][::-1]],
+                [format_number(x) for x in yearly_summary_for_table['Yearly_MWh_per_MW'][::-1]],
+                [format_number(x) for x in yearly_summary_for_table['Yearly_Value_per_MW_AC_EUR'][::-1]],
+                [format_number(x) for x in yearly_summary_for_table['Yearly_Avg_DA_Price'][::-1]],
+                [format_number(x) for x in yearly_summary_for_table['Yearly_Wind_Weighted_Price'][::-1]],
+                [format_percentage(x) for x in yearly_summary_for_table['Yearly_Profile_Factor'][::-1]]
             ],
             font=dict(size=9),
             align='left',
@@ -317,7 +317,7 @@ fig.add_trace(
 )
 
 
-fig.update_yaxes(title_text='Installed Capacity (MW)', row=2, col=1)
+fig.update_yaxes(title_text='Power (MW AC)', row=2, col=1)
 fig.update_xaxes(title_text='Year', row=2, col=1)
 
 # Third subplot: Monthly Wind energy production (bars)
@@ -332,7 +332,7 @@ fig.add_trace(
     go.Bar(x=monthly['month_date'], y=monthly['Monthly_Value_per_MW_AC_EUR'], name='Wind Market Value (EUR/MW/Month)', marker_color='darkgreen'),
     row=4, col=1, secondary_y=False
 )
-fig.update_yaxes(title_text='EUR per MW', row=4, col=1)
+fig.update_yaxes(title_text='EUR per month', row=4, col=1)
 #fig.update_xaxes(title_text='Month', row=3, col=1, tickangle=45, tickformat='%b %Y')
 
 
@@ -370,7 +370,7 @@ monthly_summary_rounded_reversed = monthly_summary_rounded.sort_values('month', 
 
 table_fig = go.Figure(data=[go.Table(
     header=dict(
-        values=['Month', 'Wind Energy produced (GWh)', 'Installed Capacity (GW) month-avg', 'Market value (EUR/MW/year)', 'Day-Ahead linear average price (EUR/MWh)', 'Wind-profile Weighted price (EUR/MWh)', 'Profile Factor of Wind (%)'],
+        values=['Month', 'Wind Energy produced (GWh)', 'Installed Capacity (MW) month-avg', 'Market value (EUR/MW/year)', 'Day-Ahead linear average price (EUR/MWh)', 'Wind-profile Weighted price (EUR/MWh)', 'Profile Factor of Wind (%)'],
         font=dict(size=10),
         align='left'
     ),
