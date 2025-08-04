@@ -128,7 +128,7 @@ monthly_summary = (
 print("\nMonthly Summary:")
 # Round first 3 columns to 0 digits
 monthly_summary_rounded = monthly_summary.copy()
-monthly_summary_rounded.iloc[:, 1:4] = monthly_summary_rounded.iloc[:, 1:4].round(0)
+monthly_summary_rounded.iloc[:, 1:4] = monthly_summary_rounded.iloc[:, 1:4].round(1)
 #print(monthly_summary_rounded.to_string(index=False, float_format='%.0f').replace(',', '.'))
 monthly_summary_df = pd.DataFrame(monthly_summary_rounded)
 print(monthly_summary_df)
@@ -212,7 +212,7 @@ yearly_summary_for_table['Yearly_Wind_Energy_GWh'] = yearly_summary_for_table['Y
 yearly_summary_for_table['Yearly_Installed_Capacity_MW_AC'] = yearly_summary_for_table['Yearly_Installed_Capacity_MW']
 # Calculate MWh/MW installed produced
 yearly_summary_for_table['Yearly_MWh_per_MW'] = yearly_summary_for_table['Yearly_Wind_Energy_MWh'] / (yearly_summary_for_table['Yearly_Installed_Capacity_MW_AC'] )
-yearly_summary_for_table = yearly_summary_for_table.round(0)
+yearly_summary_for_table = yearly_summary_for_table.round(1)
 
 # Helper functions for formatting
 def format_number(x):
@@ -377,11 +377,11 @@ table_fig = go.Figure(data=[go.Table(
             cells=dict(
             values=[
                 monthly_summary_rounded_reversed['month'].astype(str),
-                [format_number(x) for x in monthly_summary_rounded_reversed.iloc[:, 1].round(0)],
+                [format_number(x) for x in monthly_summary_rounded_reversed.iloc[:, 1]],
                 [format_mwp(x) for x in monthly_summary_rounded_reversed.iloc[:, 6]],  # Installed Capacity column
-                [format_number(x) for x in monthly_summary_rounded_reversed.iloc[:, 2].round(0)],
-                [format_number(x) for x in monthly_summary_rounded_reversed.iloc[:, 3].round(0)],
-                [format_number(x) for x in monthly_summary_rounded_reversed.iloc[:, 4].round(0)],
+                [format_number(x) for x in monthly_summary_rounded_reversed.iloc[:, 2]],
+                [format_number(x) for x in monthly_summary_rounded_reversed.iloc[:, 3]],
+                [format_number(x) for x in monthly_summary_rounded_reversed.iloc[:, 4]],
                 [format_percentage(x) for x in monthly_summary_rounded_reversed.iloc[:, 5]]
             ],
         font=dict(size=9),

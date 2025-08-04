@@ -101,7 +101,7 @@ monthly_summary = (
                 'Avg_DA_Price': round(avg_price, 1),
                 'PV_Weighted_Price': round(weighted_price, 1),
                 'profile_factor': round((weighted_price / avg_price)*100, 1) if avg_price != 0 else float('nan'),
-                'Installed_Capacity_GWp_DC': round(x['installed_capacity_MW'].mean() / 1000, 1)
+                'Installed_Capacity_GWp_DC': round(x['installed_capacity_MW'].mean() / 1000, 2)
             })
         )(
             x['DA_price'].mean(),
@@ -113,9 +113,9 @@ monthly_summary = (
 )
 
 print("\nMonthly Summary:")
-# Round first 3 columns to 0 digits
+# Round first 3 columns to 1 digits
 monthly_summary_rounded = monthly_summary.copy()
-monthly_summary_rounded.iloc[:, 1:4] = monthly_summary_rounded.iloc[:, 1:4].round(0)
+monthly_summary_rounded.iloc[:, 1:4] = monthly_summary_rounded.iloc[:, 1:4].round(1)
 #print(monthly_summary_rounded.to_string(index=False, float_format='%.0f').replace(',', '.'))
 monthly_summary_df = pd.DataFrame(monthly_summary_rounded)
 print(monthly_summary_df)
@@ -214,7 +214,7 @@ yearly_summary_for_table['Yearly_PV_Energy_GWh'] = yearly_summary_for_table['Yea
 yearly_summary_for_table['Yearly_Installed_Capacity_GWp_DC'] = yearly_summary_for_table['Yearly_Installed_Capacity_MW'] / 1000
 # Calculate MWh/MWp installed produced
 yearly_summary_for_table['Yearly_MWh_per_MWp'] = yearly_summary_for_table['Yearly_PV_Energy_MWh'] / (yearly_summary_for_table['Yearly_Installed_Capacity_GWp_DC']*1000 )
-yearly_summary_for_table = yearly_summary_for_table.round(0)
+yearly_summary_for_table = yearly_summary_for_table.round(1)
 
 # Helper functions for formatting
 def format_number(x):
@@ -252,7 +252,7 @@ fig = make_subplots(
 
 
 
-# First subplot: Yearly summary table
+# First subplot: Yearly summary table (rows reversed)
 fig.add_trace(
     go.Table(
         header=dict(
@@ -262,14 +262,14 @@ fig.add_trace(
         ),
         cells=dict(
             values=[
-                yearly_summary_for_table['year'].astype(str),
-                [format_number(x) for x in yearly_summary_for_table['Yearly_PV_Energy_GWh']],
-                [format_gwp(x) for x in yearly_summary_for_table['Yearly_Installed_Capacity_GWp_DC']],
-                [format_number(x) for x in yearly_summary_for_table['Yearly_MWh_per_MWp']],
-                [format_number(x) for x in yearly_summary_for_table['Yearly_Value_per_MWp_DC_EUR']],
-                [format_number(x) for x in yearly_summary_for_table['Yearly_Avg_DA_Price']],
-                [format_number(x) for x in yearly_summary_for_table['Yearly_PV_Weighted_Price']],
-                [format_percentage(x) for x in yearly_summary_for_table['Yearly_Profile_Factor']]
+                yearly_summary_for_table['year'].astype(str)[::-1],
+                [format_number(x) for x in yearly_summary_for_table['Yearly_PV_Energy_GWh'][::-1]],
+                [format_gwp(x) for x in yearly_summary_for_table['Yearly_Installed_Capacity_GWp_DC'][::-1]],
+                [format_number(x) for x in yearly_summary_for_table['Yearly_MWh_per_MWp'][::-1]],
+                [format_number(x) for x in yearly_summary_for_table['Yearly_Value_per_MWp_DC_EUR'][::-1]],
+                [format_number(x) for x in yearly_summary_for_table['Yearly_Avg_DA_Price'][::-1]],
+                [format_number(x) for x in yearly_summary_for_table['Yearly_PV_Weighted_Price'][::-1]],
+                [format_percentage(x) for x in yearly_summary_for_table['Yearly_Profile_Factor'][::-1]]
             ],
             font=dict(size=9),
             align='left',
