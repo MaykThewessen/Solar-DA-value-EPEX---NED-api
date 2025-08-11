@@ -6,6 +6,10 @@ import warnings
 os.system('clear')
 
 
+# TODO: add a function to only export PV power when DA prices are non-negative
+# Graph shows monthly values per year with each year as a different line on the month x-axis graph
+
+
 # --- Load all monthly DA_prices and PV data files ---
 # Find all DA_prices and PV files
 price_files = sorted(glob.glob('data/DA_prices_20*.csv'))
@@ -281,41 +285,68 @@ fig.add_trace(
 
 
 
-# Second subplot: Monthly PV energy production (bars)
-fig.add_trace(
-    go.Bar(x=monthly['month_date'], y=monthly['Monthly_PV_Energy_MWh']/1000, name='Monthly PV Energy Production (GWh)', marker_color='orange'),
-    row=2, col=1, secondary_y=False
-)
+# Second subplot: Monthly PV energy production (lines per year)
+# Create separate traces for each year
+for year in sorted(monthly['year'].unique()):
+    year_data = monthly[monthly['year'] == year]
+    # Extract month number (1-12) for x-axis
+    year_data['month_num'] = year_data['month_date'].dt.month
+    
+    fig.add_trace(
+        go.Scatter(
+            x=year_data['month_num'], 
+            y=year_data['Monthly_PV_Energy_MWh']/1000, 
+            name=f'PV Energy {year} (GWh)', 
+            mode='lines+markers',
+            line=dict(width=2),
+            marker=dict(size=6)
+        ),
+        row=2, col=1, secondary_y=False
+    )
 fig.update_yaxes(title_text='Energy (GWh)', row=2, col=1, secondary_y=False)
+fig.update_xaxes(title_text='Month', row=2, col=1, tickmode='array', tickvals=list(range(1, 13)), ticktext=['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'])
 
 
-fig.add_trace(
-    go.Bar(x=monthly['month_date'], y=monthly['Monthly_Value_per_MWp_DC_EUR'], name='PV Market Value (EUR/MWp/Month)', marker_color='goldenrod'),
-    row=3, col=1, secondary_y=False
-)
+# Third subplot: Monthly PV Market Value (lines per year)
+for year in sorted(monthly['year'].unique()):
+    year_data = monthly[monthly['year'] == year]
+    year_data['month_num'] = year_data['month_date'].dt.month
+    
+    fig.add_trace(
+        go.Scatter(
+            x=year_data['month_num'], 
+            y=year_data['Monthly_Value_per_MWp_DC_EUR'], 
+            name=f'Market Value {year} (EUR/MWp)', 
+            mode='lines+markers',
+            line=dict(width=2),
+            marker=dict(size=6)
+        ),
+        row=3, col=1, secondary_y=False
+    )
 fig.update_yaxes(title_text='EUR per MWp', row=3, col=1)
-#fig.update_xaxes(title_text='Month', row=3, col=1, tickangle=45, tickformat='%b %Y')
+fig.update_xaxes(title_text='Month', row=3, col=1, tickmode='array', tickvals=list(range(1, 13)), ticktext=['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'])
 
 
-# Fourth subplot: Monthly PV Power Weighted DA Price (bar)
-# Add average DA price as a line
-fig.add_trace(
-    go.Bar(x=monthly['month_date'], y=monthly['Monthly_Avg_DA_Price'], name='Avg DA Price (EUR/MWh)', marker_color='royalblue'),
-    row=4, col=1, secondary_y=False
-)
-fig.add_trace(
-    go.Bar(x=monthly['month_date'], y=monthly['Monthly_PV_Power_Weighted_DA_Price'], name='PV Weighted Market Price (EUR/MWh)', marker_color='purple'),
-    row=4, col=1, secondary_y=False
-)
+# Fourth subplot: Monthly Profile Factor (lines per year)
+for year in sorted(monthly['year'].unique()):
+    year_data = monthly[monthly['year'] == year]
+    year_data['month_num'] = year_data['month_date'].dt.month
+    
+    # Profile Factor line
+    fig.add_trace(
+        go.Scatter(
+            x=year_data['month_num'], 
+            y=year_data['Monthly_Profile_Factor'], 
+            name=f'Profile Factor {year} (%)', 
+            mode='lines+markers',
+            line=dict(width=2),
+            marker=dict(size=6)
+        ),
+        row=4, col=1, secondary_y=False
+    )
 
-# Add profile factor as a secondary y-axis line
-fig.add_trace(
-    go.Bar(x=monthly['month_date'], y=monthly['Monthly_Profile_Factor'], name='Profile Factor (%)'),
-    row=4, col=1, secondary_y=False
-)
-fig.update_yaxes(title_text='Profile factor (%)', row=4, col=1, secondary_y=False)
-#fig.update_yaxes(title_text='Profile Factor (%)', row=4, col=1, secondary_y=True)
-fig.update_xaxes(title_text='per month', row=4, col=1, tickangle=45, tickformat='%b %Y')
+fig.update_yaxes(title_text='Profile Factor (%)', row=4, col=1, secondary_y=False)
+fig.update_xaxes(title_text='Month', row=4, col=1, tickmode='array', tickvals=list(range(1, 13)), ticktext=['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'])
 
 # Move legend below the plot
 fig.update_layout(
