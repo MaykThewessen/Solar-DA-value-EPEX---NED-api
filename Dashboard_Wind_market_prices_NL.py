@@ -18,6 +18,9 @@ price_files = [f for f in price_files if 'combined' not in f]
 price_dfs = []
 for f in price_files:
     df = pd.read_csv(f)
+    # Remove white spaces at beginning and end of all string columns
+    for col in df.select_dtypes(include=['object']).columns:
+        df[col] = df[col].astype(str).str.strip()
     df['time'] = pd.to_datetime(df['time'], utc=True).dt.tz_convert('Europe/Amsterdam')
     price_dfs.append(df)
 df_prices = pd.concat(price_dfs, ignore_index=True)
@@ -26,6 +29,9 @@ df_prices = pd.concat(price_dfs, ignore_index=True)
 wind_dfs = []
 for f in wind_files:
     df = pd.read_csv(f)
+    # Remove white spaces at beginning and end of all string columns
+    for col in df.select_dtypes(include=['object']).columns:
+        df[col] = df[col].astype(str).str.strip()
     df['time'] = pd.to_datetime(df['time'], utc=True).dt.tz_convert('Europe/Amsterdam')
     wind_dfs.append(df)
 df_wind = pd.concat(wind_dfs, ignore_index=True)
@@ -36,6 +42,11 @@ df_wind = pd.concat(wind_dfs, ignore_index=True)
 
 # Merge the two dataframes on the 'time' column
 df_combined = pd.merge(df_prices, df_wind, on='time', how='left')
+
+# Remove white spaces at beginning and end of all string columns in combined dataframe
+for col in df_combined.select_dtypes(include=['object']).columns:
+    df_combined[col] = df_combined[col].astype(str).str.strip()
+
 #df_combined = df_combined.fillna(0)
 #df_combined = df_combined.set_index('time').interpolate(method='time').reset_index()
 
@@ -55,8 +66,8 @@ capacity_points = [
     (pd.Timestamp('2022-12-31', tz='Europe/Amsterdam'), 5600),
     (pd.Timestamp('2023-12-31', tz='Europe/Amsterdam'), 6200),  # MW AC
     (pd.Timestamp('2024-12-31', tz='Europe/Amsterdam'), 6580),  # MW AC
-    (pd.Timestamp('2025-12-31', tz='Europe/Amsterdam'), 6700),  # MW AC
-    (pd.Timestamp('2026-12-31', tz='Europe/Amsterdam'), 7200),  # MW AC
+    (pd.Timestamp('2025-12-31', tz='Europe/Amsterdam'), 6580 + (80*12)/0.60),  # MW AC # lower installed Wind estimate update
+    (pd.Timestamp('2026-12-31', tz='Europe/Amsterdam'), 6580 + 1600 + 1440),  # MW AC
 ]
 
 def fit_installed_capacity_piecewise(date):
@@ -107,23 +118,29 @@ print(df_combined)
 df_combined['month'] = df_combined['time'].dt.tz_localize(None).dt.to_period('M')
 
 monthly_summary = (
-    df_combined.groupby('month').apply(
-        lambda x: (
-            lambda avg_price, weighted_price: pd.Series({
-                'Total_Wind_Energy_GWh': round(x['Wind_production_MW'].sum()/1000, 1),
-                'Value_per_MW_AC_EUR': round(x['Wind_value'].sum() / x['installed_capacity_MW'].mean(), 1),
-                'Avg_DA_Price': round(avg_price, 1),
-                'Wind_Weighted_Price': round(weighted_price, 1),
-                'profile_factor': round((weighted_price / avg_price)*100, 1) if avg_price != 0 else float('nan'),
-                'Installed_Capacity_MW_AC': round(x['installed_capacity_MW'].mean(), 0)
-            })
-        )(
-            x['DA_price'].mean(),
-            (x['Wind_production_MW'] * x['DA_price']).sum() / x['Wind_production_MW'].sum() if x['Wind_production_MW'].sum() > 0 else float('nan')
-        )
-    )
-    .reset_index()
+    df_combined.groupby('month').agg({
+        'Wind_production_MW': 'sum',
+        'Wind_value': 'sum',
+        'installed_capacity_MW': 'mean',
+        'DA_price': 'mean'
+    }).reset_index()
 )
+
+# Calculate derived columns
+monthly_summary['Total_Wind_Energy_GWh'] = round(monthly_summary['Wind_production_MW']/1000, 1)
+monthly_summary['Value_per_MW_AC_EUR'] = round(monthly_summary['Wind_value'] / monthly_summary['installed_capacity_MW'], 1)
+monthly_summary['Avg_DA_Price'] = monthly_summary['DA_price']
+
+# Calculate Wind weighted price for each month
+monthly_summary['Wind_Weighted_Price'] = monthly_summary.apply(
+    lambda row: (df_combined[df_combined['month'] == row['month']]['Wind_production_MW'] * 
+                 df_combined[df_combined['month'] == row['month']]['DA_price']).sum() / 
+                df_combined[df_combined['month'] == row['month']]['Wind_production_MW'].sum() 
+                if df_combined[df_combined['month'] == row['month']]['Wind_production_MW'].sum() > 0 else float('nan'), axis=1
+)
+
+monthly_summary['profile_factor'] = round((monthly_summary['Wind_Weighted_Price'] / monthly_summary['Avg_DA_Price'])*100, 1)
+monthly_summary['Installed_Capacity_MW_AC'] = round(monthly_summary['installed_capacity_MW'], 0)
 
 print("\nMonthly Summary:")
 # Round first 3 columns to 0 digits
@@ -137,6 +154,7 @@ print(monthly_summary_df)
 # Plot the combined dataframe using plotly
 import plotly.graph_objs as go  # type: ignore
 from plotly.subplots import make_subplots  # type: ignore
+import plotly.colors  # type: ignore
 
 # --- Prepare data for plotting ---
 # 1. PV power and Day-ahead price (hourly)
@@ -146,19 +164,26 @@ from plotly.subplots import make_subplots  # type: ignore
 df_combined['month_date'] = df_combined['time'].dt.tz_localize(None).dt.to_period('M').dt.to_timestamp()
 
 monthly = (
-    df_combined.groupby('month_date').apply(
-        lambda x: pd.Series({
-            'Monthly_Wind_Energy_MWh': round(x['Wind_production_MW'].sum(), 1),
-            'Monthly_Value_per_MW_AC_EUR': round(x['Wind_value'].sum() / x['installed_capacity_MW'].mean(), 1),
-            # This is the correct formula for a weighted average:
-            # weighted_avg = sum(value * weight) / sum(weight)
-            # Here, DA_price is weighted by Wind_production_MW.
-            'Monthly_Wind_Power_Weighted_DA_Price': (x['Wind_production_MW'] * x['DA_price']).sum() / x['Wind_production_MW'].sum() if x['Wind_production_MW'].sum() > 0 else float('nan'),
-            'Monthly_Installed_Capacity_MW': x['installed_capacity_MW'].mean(),  # or .last() for end-of-month
-            'Monthly_Avg_DA_Price': x['DA_price'].mean(),
-        })
-    )
-    .reset_index()
+    df_combined.groupby('month_date').agg({
+        'Wind_production_MW': 'sum',
+        'Wind_value': 'sum',
+        'installed_capacity_MW': 'mean',
+        'DA_price': 'mean'
+    }).reset_index()
+)
+
+# Calculate derived columns
+monthly['Monthly_Wind_Energy_MWh'] = round(monthly['Wind_production_MW'], 1)
+monthly['Monthly_Value_per_MW_AC_EUR'] = round(monthly['Wind_value'] / monthly['installed_capacity_MW'], 1)
+monthly['Monthly_Installed_Capacity_MW'] = monthly['installed_capacity_MW']
+monthly['Monthly_Avg_DA_Price'] = monthly['DA_price']
+
+# Calculate Wind weighted price for each month
+monthly['Monthly_Wind_Power_Weighted_DA_Price'] = monthly.apply(
+    lambda row: (df_combined[df_combined['month_date'] == row['month_date']]['Wind_production_MW'] * 
+                 df_combined[df_combined['month_date'] == row['month_date']]['DA_price']).sum() / 
+                df_combined[df_combined['month_date'] == row['month_date']]['Wind_production_MW'].sum() 
+                if df_combined[df_combined['month_date'] == row['month_date']]['Wind_production_MW'].sum() > 0 else float('nan'), axis=1
 )
 
 # Calculate profile factor
@@ -189,10 +214,21 @@ yearly_wind_values['Yearly_Value_per_MW_AC_EUR'] = yearly_wind_values['Yearly_To
 yearly_totals = yearly_totals.merge(yearly_wind_values[['year', 'Yearly_Value_per_MW_AC_EUR']], on='year')
 
 # Calculate yearly weighted average price
-yearly_weighted_prices = df_combined.groupby(df_combined['time'].dt.year).apply(
-    lambda x: (x['Wind_production_MW'] * x['DA_price']).sum() / x['Wind_production_MW'].sum() if x['Wind_production_MW'].sum() > 0 else float('nan')
-).reset_index()
-yearly_weighted_prices.columns = ['year', 'Yearly_Wind_Weighted_Price']
+yearly_weighted_prices = df_combined.groupby(df_combined['time'].dt.year).agg({
+    'Wind_production_MW': 'sum',
+    'DA_price': 'mean'
+}).reset_index()
+
+# Calculate weighted price manually
+yearly_weighted_prices['Yearly_Wind_Weighted_Price'] = yearly_weighted_prices.apply(
+    lambda row: (df_combined[df_combined['time'].dt.year == row['time']]['Wind_production_MW'] * 
+                 df_combined[df_combined['time'].dt.year == row['time']]['DA_price']).sum() / 
+                df_combined[df_combined['time'].dt.year == row['time']]['Wind_production_MW'].sum() 
+                if df_combined[df_combined['time'].dt.year == row['time']]['Wind_production_MW'].sum() > 0 else float('nan'), axis=1
+)
+
+yearly_weighted_prices = yearly_weighted_prices.rename(columns={'time': 'year'})
+yearly_weighted_prices = yearly_weighted_prices[['year', 'Yearly_Wind_Weighted_Price']]
 
 # Merge yearly data
 yearly_totals = yearly_totals.merge(yearly_weighted_prices, on='year')
@@ -232,27 +268,29 @@ def format_percentage(x):
 
 # --- Create subplots ---
 fig = make_subplots(
-    rows=5, cols=1, shared_xaxes=False, vertical_spacing=0.08,
+    rows=6, cols=1, shared_xaxes=False, vertical_spacing=0.08,
     subplot_titles=(
-        'Yearly Summary',
+        'Total Wind Yield in NL',
         'Installed Wind Capacity',
-        'Monthly Wind Yield',
-        'Market Value per MW installed',
-        'Wind Weighted DA Price & Profile Factor'
+        'Yield normalized per installed capacity',
+        'Market Value per installed capacity',
+        'Profile Factor Wind (%)',
+        ' '
     ),
     specs=[
-        [{"type": "table"}],
-        [{"secondary_y": False}],
         [{"secondary_y": True}],
         [{"secondary_y": False}],
-        [{"secondary_y": True}]
+        [{"secondary_y": False}],
+        [{"secondary_y": False}],
+        [{"secondary_y": False}],
+        [{"type": "table"}]
     ],
-    row_heights=[0.3, 0.2, 0.2, 0.2, 0.2]  # Adjusted heights for 5 subplots
+    row_heights=[0.22, 0.22, 0.22, 0.22, 0.22, 0.35]  # Increased heights for better readability
 )
 
 
 
-# First subplot: Yearly summary table (rows reversed)
+# Sixth subplot: Yearly summary table (rows reversed)
 fig.add_trace(
     go.Table(
         header=dict(
@@ -276,8 +314,70 @@ fig.add_trace(
             height=20
         )
     ),
-    row=1, col=1
+    row=6, col=1
 )
+
+# Create custom color scheme with distinct, distinguishable colors for each year
+years_list = sorted(monthly['year'].unique())
+num_years = len(years_list)
+
+# Define a palette of distinct colors that are easy to differentiate
+distinct_colors = [
+    '#1f77b4',  # Blue
+    '#ff7f0e',  # Orange
+    '#2ca02c',  # Green
+    '#d62728',  # Red
+    '#9467bd',  # Purple
+    '#8c564b',  # Brown
+    '#e377c2',  # Pink
+    '#7f7f7f',  # Grey
+    '#bcbd22',  # Olive
+    '#17becf',  # Cyan
+    '#ff9896',  # Light red
+    '#98df8a',  # Light green
+    '#ffbb78',  # Light orange
+    '#aec7e8',  # Light blue
+    '#c5b0d5',  # Light purple
+]
+
+color_scheme = []
+for i, year in enumerate(years_list):
+    if i < len(distinct_colors):
+        color_scheme.append(distinct_colors[i])
+    else:
+        # If we have more years than colors, cycle through the palette
+        color_scheme.append(distinct_colors[i % len(distinct_colors)])
+
+# Create year to color mapping
+year_to_color = dict(zip(years_list, color_scheme))
+
+# First subplot: Monthly Wind energy production (lines per year)
+# Create separate traces for each year
+for year in sorted(monthly['year'].unique()):
+    year_data = monthly[monthly['year'] == year].copy()
+    # Extract month number (1-12) for x-axis and ensure proper January to December order
+    year_data['month_num'] = year_data['month_date'].dt.month
+    # Sort by month to ensure January to December order
+    year_data = year_data.sort_values('month_num')
+    
+    fig.add_trace(
+        go.Scatter(
+            x=year_data['month_num'], 
+            y=year_data['Monthly_Wind_Energy_MWh']/1000, 
+            name=f'{year}', 
+            mode='lines+markers',
+            line=dict(width=2),
+            marker=dict(size=6),
+            hovertemplate='<b>Year:</b> %{fullData.name}<br><b>Month:</b> %{customdata}<br><b>Energy:</b> %{y:.1f} GWh<extra></extra>',
+            customdata=year_data['month_date'].dt.strftime('%B'),
+            legendgroup=f'group_{year}',
+            showlegend=True,
+            line_color=year_to_color[year]
+        ),
+        row=1, col=1, secondary_y=False
+    )
+fig.update_yaxes(title_text='GWh produced', row=1, col=1, secondary_y=False)
+fig.update_xaxes(title_text='', row=1, col=1, tickmode='array', tickvals=list(range(1, 13)), ticktext=['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], range=[0.5, 12.5])
 
 # Second subplot: Installed Wind Capacity
 # Create date range for the fitted curve
@@ -316,52 +416,128 @@ fig.add_trace(
     row=2, col=1
 )
 
-
 fig.update_yaxes(title_text='Power (MW AC)', row=2, col=1)
 fig.update_xaxes(title_text='Year', row=2, col=1)
 
-# Third subplot: Monthly Wind energy production (bars)
-fig.add_trace(
-    go.Bar(x=monthly['month_date'], y=monthly['Monthly_Wind_Energy_MWh']/1000, name='Monthly Wind Energy Production (GWh)', marker_color='green'),
-    row=3, col=1, secondary_y=False
-)
-fig.update_yaxes(title_text='Energy (GWh)', row=3, col=1, secondary_y=False)
+# Third subplot: Monthly MWh yield per MW installed (lines per year)
+for year in sorted(monthly['year'].unique()):
+    year_data = monthly[monthly['year'] == year].copy()
+    year_data['month_num'] = year_data['month_date'].dt.month
+    # Sort by month to ensure January to December order
+    year_data = year_data.sort_values('month_num')
+    
+    fig.add_trace(
+        go.Scatter(
+            x=year_data['month_num'], 
+            y=year_data['Monthly_Wind_Energy_MWh'] / (year_data['Monthly_Installed_Capacity_MW']), 
+            name=f'{year}', 
+            mode='lines+markers',
+            line=dict(width=2),
+            marker=dict(size=6),
+            hovertemplate='<b>Year:</b> %{fullData.name}<br><b>Month:</b> %{customdata}<br><b>MWh/MW:</b> %{y:.1f}<extra></extra>',
+            customdata=year_data['month_date'].dt.strftime('%B'),
+            legendgroup=f'group_{year}',
+            showlegend=True,
+            line_color=year_to_color[year]
+        ),
+        row=3, col=1, secondary_y=False
+    )
+fig.update_yaxes(title_text='MWh per MW', row=3, col=1)
+fig.update_xaxes(title_text='', row=3, col=1, tickmode='array', tickvals=list(range(1, 13)), ticktext=['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], range=[0.5, 12.5])
 
+# Fourth subplot: Monthly Wind Market Value (lines per year)
+for year in sorted(monthly['year'].unique()):
+    year_data = monthly[monthly['year'] == year].copy()
+    year_data['month_num'] = year_data['month_date'].dt.month
+    # Sort by month to ensure January to December order
+    year_data = year_data.sort_values('month_num')
+    
+    fig.add_trace(
+        go.Scatter(
+            x=year_data['month_num'], 
+            y=year_data['Monthly_Value_per_MW_AC_EUR'], 
+            name=f'{year}', 
+            mode='lines+markers',
+            line=dict(width=2),
+            marker=dict(size=6),
+            hovertemplate='<b>Year:</b> %{fullData.name}<br><b>Month:</b> %{customdata}<br><b>Market Value:</b> %{y:.1f} EUR/MW<extra></extra>',
+            customdata=year_data['month_date'].dt.strftime('%B'),
+            legendgroup=f'group_{year}',
+            showlegend=True,
+            line_color=year_to_color[year]
+        ),
+        row=4, col=1, secondary_y=False
+    )
+fig.update_yaxes(title_text='€ per MW', row=4, col=1)
+fig.update_xaxes(title_text='', row=4, col=1, tickmode='array', tickvals=list(range(1, 13)), ticktext=['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], range=[0.5, 12.5])
 
-fig.add_trace(
-    go.Bar(x=monthly['month_date'], y=monthly['Monthly_Value_per_MW_AC_EUR'], name='Wind Market Value (EUR/MW/Month)', marker_color='darkgreen'),
-    row=4, col=1, secondary_y=False
-)
-fig.update_yaxes(title_text='EUR per month', row=4, col=1)
-#fig.update_xaxes(title_text='Month', row=3, col=1, tickangle=45, tickformat='%b %Y')
+# Fifth subplot: Monthly Profile Factor only (lines per year)
+for year in sorted(monthly['year'].unique()):
+    year_data = monthly[monthly['year'] == year].copy()
+    year_data['month_num'] = year_data['month_date'].dt.month
+    # Sort by month to ensure January to December order
+    year_data = year_data.sort_values('month_num')
+    
+    # Profile Factor line only
+    fig.add_trace(
+        go.Scatter(
+            x=year_data['month_num'], 
+            y=year_data['Monthly_Profile_Factor'], 
+            name=f'{year}', 
+            mode='lines+markers',
+            line=dict(width=2),
+            marker=dict(size=6),
+            hovertemplate='<b>Year:</b> %{fullData.name}<br><b>Month:</b> %{customdata}<br><b>Profile Factor:</b> %{y:.1f}%<extra></extra>',
+            customdata=year_data['month_date'].dt.strftime('%B'),
+            legendgroup=f'group_{year}',
+            showlegend=True,
+            line_color=year_to_color[year]
+        ),
+        row=5, col=1, secondary_y=False
+    )
 
+fig.update_yaxes(title_text='Profile Factor (%)', row=5, col=1)
+fig.update_xaxes(title_text='', row=5, col=1, tickmode='array', tickvals=list(range(1, 13)), ticktext=['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], range=[0.5, 12.5])
 
-# Fifth subplot: Monthly Wind Power Weighted DA Price (bar)
-# Add average DA price as a line
-fig.add_trace(
-    go.Bar(x=monthly['month_date'], y=monthly['Monthly_Avg_DA_Price'], name='Avg DA Price (EUR/MWh)', marker_color='royalblue'),
-    row=5, col=1, secondary_y=False
-)
-fig.add_trace(
-    go.Bar(x=monthly['month_date'], y=monthly['Monthly_Wind_Power_Weighted_DA_Price'], name='Wind Weighted Market Price (EUR/MWh)', marker_color='teal'),
-    row=5, col=1, secondary_y=False
-)
+# Update layout with individual legends for each subplot
+#fig.update_layout(
+    #title_text='Analysis on Wind value (NL), EPEX spot prices + Wind production of NED.nl',
+    #margin=dict(b=50)
+#)
 
-# Add profile factor as a secondary y-axis line
-fig.add_trace(
-    go.Bar(x=monthly['month_date'], y=monthly['Monthly_Profile_Factor'], name='Profile Factor (%)'),
-    row=5, col=1, secondary_y=False
-)
-fig.update_yaxes(title_text='Profile factor (%)', row=5, col=1, secondary_y=False)
-#fig.update_yaxes(title_text='Profile Factor (%)', row=5, col=1, secondary_y=True)
-fig.update_xaxes(title_text='', row=5, col=1, tickangle=45, tickformat='%b %Y')
-
-# Move legend below the plot
+# Add individual legends for each subplot
 fig.update_layout(
-    title_text='Analysis on Wind value (NL), EPEX spot prices + Wind production of NED.nl',
-    legend=dict(orientation='h', yanchor='bottom', y=-0.25, xanchor='center', x=0.5),
-    margin=dict(b=120)
+    height=1200,  # Increase overall figure height
+    legend=dict(
+        x=1.02,
+        y=1,
+        xanchor='left',
+        yanchor='top'
+    )
 )
+
+# Update legend for each subplot to show only relevant traces
+# Skip the first trace (table) and only update scatter plots
+num_years = len(sorted(monthly['year'].unique()))
+
+# First subplot: Wind Energy (lines per year)
+for i, year in enumerate(sorted(monthly['year'].unique())):
+    fig.data[i + 1].update(showlegend=True)
+
+# Second subplot: Installed Capacity (3 traces: fitted curve, capacity points, hourly production)
+# These are already set to show legend
+
+# Third subplot: MWh yield per MW (lines per year)
+for i, year in enumerate(sorted(monthly['year'].unique())):
+    fig.data[i + 1 + num_years + 3].update(showlegend=True)  # +3 for the 3 traces in subplot 2
+
+# Fourth subplot: Market Value (lines per year)
+for i, year in enumerate(sorted(monthly['year'].unique())):
+    fig.data[i + 1 + 2*num_years + 3].update(showlegend=True)
+
+# Fifth subplot: Profile Factor (lines per year)
+for i, year in enumerate(sorted(monthly['year'].unique())):
+    fig.data[i + 1 + 3*num_years + 3].update(showlegend=True)
 
 # Create a separate table figure
 # Format numbers with thousands separators and percentage for profile factor
@@ -396,8 +572,9 @@ table_fig.update_layout(
 )
 
 # Write both figures to separate files
-fig.write_html('wind_production_plot_v3.html', auto_open=True)
 table_fig.write_html('wind_monthly_summary_table.html', auto_open=True)
+fig.write_html('wind_production_plot_v3.html', auto_open=True)
+
 
 
 

@@ -63,7 +63,8 @@ from datetime import datetime
 
 # Known data points for installed capacity (DC) at year-end
 capacity_points = [
-    (pd.Timestamp('2019-12-31', tz='Europe/Amsterdam'), 7226), # MWp DC
+    (pd.Timestamp('2018-12-31', tz='Europe/Amsterdam'), 4609), # MWp DC https://www.cbs.nl/nl-nl/longread/rapportages/2024/hernieuwbare-energie-in-nederland-2023/5-zonne-energie
+    (pd.Timestamp('2019-12-31', tz='Europe/Amsterdam'), 7226), # MWp DC https://opendata.cbs.nl/#/CBS/nl/dataset/85005NED/table
     (pd.Timestamp('2020-12-31', tz='Europe/Amsterdam'), 11108),
     (pd.Timestamp('2021-12-31', tz='Europe/Amsterdam'), 14822),
     (pd.Timestamp('2022-12-31', tz='Europe/Amsterdam'), 19536),
@@ -251,6 +252,17 @@ yearly_totals['Yearly_Profile_Factor'] = (yearly_totals['Yearly_PV_Weighted_Pric
 # Add yearly data to monthly dataframe
 monthly = monthly.merge(yearly_totals[['year', 'Yearly_PV_Energy_MWh', 'Yearly_Value_per_MWp_DC_EUR', 'Yearly_PV_Weighted_Price', 'Yearly_Profile_Factor']], on='year')
 
+# Prepare hourly data for the new subplot
+hourly = (
+    df_combined.groupby(df_combined['time']).agg({
+        'Solar_production_MW': 'first',
+        'installed_capacity_MW': 'first'
+    }).reset_index()
+)
+hourly['Hourly_PV_Power_GW'] = hourly['Solar_production_MW'] / 1000  # Convert to GW
+hourly['Hourly_Installed_Capacity_GW'] = hourly['installed_capacity_MW'] / 1000  # Convert to GW
+hourly = hourly[['time', 'Hourly_PV_Power_GW', 'Hourly_Installed_Capacity_GW']]
+
 # Create custom color scheme with distinct, distinguishable colors for each year
 years_list = sorted(monthly['year'].unique())
 num_years = len(years_list)
@@ -311,8 +323,9 @@ def format_percentage(x):
 
 # --- Create subplots ---
 fig = make_subplots(
-    rows=5, cols=1, shared_xaxes=False, vertical_spacing=0.08,
+    rows=6, cols=1, shared_xaxes=False, vertical_spacing=0.06,
     subplot_titles=(
+        'Hourly PV Power Output in NL',
         'Total PV Yield in NL',
         'Yield normalized per installed capacity',
         'Market Value per installed capacity',
@@ -320,18 +333,57 @@ fig = make_subplots(
         ' '
     ),
     specs=[
-        [{"secondary_y": True}],
+        [{"secondary_y": False}],
+        [{"secondary_y": False}],
         [{"secondary_y": False}],
         [{"secondary_y": False}],
         [{"secondary_y": False}],
         [{"type": "table"}]
     ],
-    row_heights=[0.22, 0.22, 0.22, 0.22, 0.40]  # Adjusted heights for 5 subplots
+    row_heights=[0.18, 0.18, 0.18, 0.18, 0.18, 0.40]  # Adjusted heights for 6 subplots
 )
 
 
 
-# Fifth subplot: Yearly summary table (rows reversed)
+# First subplot: Hourly PV power output with installed capacity line
+fig.add_trace(
+    go.Scatter(
+        x=hourly['time'],
+        y=hourly['Hourly_PV_Power_GW'],
+        mode='lines',
+        name='Hourly PV Power',
+        line=dict(color='blue', width=1),
+        opacity=0.7,
+        showlegend=False
+    ),
+    row=1, col=1, secondary_y=False
+)
+
+# Add red dotted line for installed capacity (yearly values only)
+yearly_capacity_dates = []
+yearly_capacity_values = []
+
+for date, capacity in capacity_points:
+    yearly_capacity_dates.append(date)
+    yearly_capacity_values.append(capacity/1000)  # Convert to GWp
+
+fig.add_trace(
+    go.Scatter(
+        x=yearly_capacity_dates,
+        y=yearly_capacity_values,
+        mode='lines+markers',
+        name='GWp PV in NL',
+        line=dict(color='red', width=2, dash='dot'),
+        marker=dict(color='red', size=6),
+        showlegend=True
+    ),
+    row=1, col=1, secondary_y=False
+)
+
+fig.update_yaxes(title_text='Power (GW)', row=1, col=1)
+fig.update_xaxes(title_text='', row=1, col=1)
+
+# Sixth subplot: Yearly summary table (rows reversed)
 fig.add_trace(
     go.Table(
         header=dict(
@@ -355,7 +407,7 @@ fig.add_trace(
             height=20
         )
     ),
-    row=5, col=1
+    row=6, col=1
 )
 
 
@@ -383,13 +435,13 @@ for year in sorted(monthly['year'].unique()):
             showlegend=True,
             line_color=year_to_color[year]
         ),
-        row=1, col=1, secondary_y=False
+        row=2, col=1, secondary_y=False
     )
-fig.update_yaxes(title_text='GWh produced', row=1, col=1, secondary_y=False)
-fig.update_xaxes(title_text='', row=1, col=1, tickmode='array', tickvals=list(range(1, 13)), ticktext=['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], range=[0.5, 12.5])
+fig.update_yaxes(title_text='GWh produced', row=2, col=1, secondary_y=False)
+fig.update_xaxes(title_text='', row=2, col=1, tickmode='array', tickvals=list(range(1, 13)), ticktext=['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], range=[0.5, 12.5])
 
 
-# Second subplot: Monthly MWh yield per MWp installed (lines per year)
+# Third subplot: Monthly MWh yield per MWp installed (lines per year)
 for year in sorted(monthly['year'].unique()):
     year_data = monthly[monthly['year'] == year].copy()
     year_data['month_num'] = year_data['month_date'].dt.month
@@ -410,13 +462,13 @@ for year in sorted(monthly['year'].unique()):
             showlegend=True,
             line_color=year_to_color[year]
         ),
-        row=2, col=1, secondary_y=False
+        row=3, col=1, secondary_y=False
     )
-fig.update_yaxes(title_text='MWh per MWp', row=2, col=1)
-fig.update_xaxes(title_text='', row=2, col=1, tickmode='array', tickvals=list(range(1, 13)), ticktext=['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], range=[0.5, 12.5])
+fig.update_yaxes(title_text='MWh per MWp', row=3, col=1)
+fig.update_xaxes(title_text='', row=3, col=1, tickmode='array', tickvals=list(range(1, 13)), ticktext=['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], range=[0.5, 12.5])
 
 
-# Third subplot: Monthly PV Market Value (lines per year)
+# Fourth subplot: Monthly PV Market Value (lines per year)
 for year in sorted(monthly['year'].unique()):
     year_data = monthly[monthly['year'] == year].copy()
     year_data['month_num'] = year_data['month_date'].dt.month
@@ -437,13 +489,13 @@ for year in sorted(monthly['year'].unique()):
             showlegend=True,
             line_color=year_to_color[year]
         ),
-        row=3, col=1, secondary_y=False
+        row=4, col=1, secondary_y=False
     )
-fig.update_yaxes(title_text='€ per MWp', row=3, col=1)
-fig.update_xaxes(title_text='', row=3, col=1, tickmode='array', tickvals=list(range(1, 13)), ticktext=['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], range=[0.5, 12.5])
+fig.update_yaxes(title_text='€ per MWp', row=4, col=1)
+fig.update_xaxes(title_text='', row=4, col=1, tickmode='array', tickvals=list(range(1, 13)), ticktext=['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], range=[0.5, 12.5])
 
 
-# Fourth subplot: Monthly Profile Factor only (lines per year)
+# Fifth subplot: Monthly Profile Factor only (lines per year)
 for year in sorted(monthly['year'].unique()):
     year_data = monthly[monthly['year'] == year].copy()
     year_data['month_num'] = year_data['month_date'].dt.month
@@ -465,11 +517,11 @@ for year in sorted(monthly['year'].unique()):
             showlegend=True,
             line_color=year_to_color[year]
         ),
-        row=4, col=1, secondary_y=False
+        row=5, col=1, secondary_y=False
     )
 
-fig.update_yaxes(title_text='Profile Factor (%)', row=4, col=1)
-fig.update_xaxes(title_text='', row=4, col=1, tickmode='array', tickvals=list(range(1, 13)), ticktext=['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], range=[0.5, 12.5])
+fig.update_yaxes(title_text='Profile Factor (%)', row=5, col=1)
+fig.update_xaxes(title_text='', row=5, col=1, tickmode='array', tickvals=list(range(1, 13)), ticktext=['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], range=[0.5, 12.5])
 
 # Update layout with individual legends for each subplot
 #fig.update_layout(
@@ -488,17 +540,17 @@ fig.update_layout(
 )
 
 # Update legend for each subplot to show only relevant traces
-# Skip the first trace (table) and only update scatter plots
+# Skip the first two traces (daily PV yield and installed capacity) and only update scatter plots
 num_years = len(sorted(monthly['year'].unique()))
 for i, year in enumerate(sorted(monthly['year'].unique())):
-    # Update legend for first subplot (PV Energy) - starts at index 1 (after table)
-    fig.data[i + 1].update(showlegend=True)
-    # Update legend for second subplot (MWh yield per MWp)
-    fig.data[i + 1 + num_years].update(showlegend=True)
-    # Update legend for third subplot (Market Value)
-    fig.data[i + 1 + 2*num_years].update(showlegend=True)
-    # Update legend for fourth subplot (Profile Factor)
-    fig.data[i + 1 + 3*num_years].update(showlegend=True)
+    # Update legend for second subplot (PV Energy) - starts at index 3 (after daily traces)
+    fig.data[i + 3].update(showlegend=True)
+    # Update legend for third subplot (MWh yield per MWp)
+    fig.data[i + 3 + num_years].update(showlegend=True)
+    # Update legend for fourth subplot (Market Value)
+    fig.data[i + 3 + 2*num_years].update(showlegend=True)
+    # Update legend for fifth subplot (Profile Factor)
+    fig.data[i + 3 + 3*num_years].update(showlegend=True)
 
 # Create a separate table figure
 # Format numbers with thousands separators and percentage for profile factor
