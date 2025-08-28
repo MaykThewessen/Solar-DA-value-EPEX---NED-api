@@ -228,7 +228,7 @@ fig.add_trace(
     row=2, col=1, secondary_y=False
 )
 fig.update_yaxes(title_text='Value per MWp', row=2, col=1)
-fig.update_xaxes(title_text='Month', row=2, col=1, tickangle=45, tickformat='%b %Y')
+fig.update_xaxes(title_text='', row=2, col=1, tickangle=45, tickformat='%b %Y')
 
 # Third subplot: Monthly PV Power Weighted DA Price (bar)
 fig.add_trace(
@@ -247,7 +247,7 @@ fig.add_trace(
 )
 fig.update_yaxes(title_text='EUR/MWh', row=3, col=1, secondary_y=False)
 fig.update_yaxes(title_text='Profile Factor (%)', row=3, col=1, secondary_y=True)
-fig.update_xaxes(title_text='Month', row=3, col=1, tickangle=45, tickformat='%b %Y')
+fig.update_xaxes(title_text='', row=3, col=1, tickangle=45, tickformat='%b %Y')
 
 # Add table to the right column
 fig.add_trace(

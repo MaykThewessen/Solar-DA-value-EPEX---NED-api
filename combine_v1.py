@@ -166,7 +166,7 @@ fig.add_trace(
     row=1, col=1, secondary_y=False
 )
 fig.update_yaxes(title_text='Monthly PV Yield per MW', row=1, col=1)
-fig.update_xaxes(title_text='Month', row=1, col=1, tickangle=45, tickformat='%b %Y')
+fig.update_xaxes(title_text='', row=1, col=1, tickangle=45, tickformat='%b %Y')
 
 # Second subplot: Monthly PV Value per MW (bar, left), Monthly PV Power Weighted DA Price (bar, right)
 fig.add_trace(
@@ -183,7 +183,7 @@ fig.add_trace(
 )
 fig.update_yaxes(title_text='Monthly PV Value per MW', row=2, col=1, secondary_y=False)
 fig.update_yaxes(title_text='EUR/MWh', row=2, col=1, secondary_y=True)
-fig.update_xaxes(title_text='Month', row=2, col=1, tickangle=45, tickformat='%b %Y')
+fig.update_xaxes(title_text='', row=2, col=1, tickangle=45, tickformat='%b %Y')
 
 # Move legend below the plot
 fig.update_layout(

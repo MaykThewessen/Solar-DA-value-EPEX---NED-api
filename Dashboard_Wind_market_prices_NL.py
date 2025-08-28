@@ -354,7 +354,7 @@ fig.add_trace(
 )
 fig.update_yaxes(title_text='Profile factor (%)', row=5, col=1, secondary_y=False)
 #fig.update_yaxes(title_text='Profile Factor (%)', row=5, col=1, secondary_y=True)
-fig.update_xaxes(title_text='per month', row=5, col=1, tickangle=45, tickformat='%b %Y')
+fig.update_xaxes(title_text='', row=5, col=1, tickangle=45, tickformat='%b %Y')
 
 # Move legend below the plot
 fig.update_layout(
