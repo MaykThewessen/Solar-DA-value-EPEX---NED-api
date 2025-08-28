@@ -58,8 +58,8 @@ capacity_points = [
     (pd.Timestamp('2022-12-31', tz='Europe/Amsterdam'), 19536),
     (pd.Timestamp('2023-12-31', tz='Europe/Amsterdam'), 24302),  # MWp DC
     (pd.Timestamp('2024-12-31', tz='Europe/Amsterdam'), 28620),  # MWp DC
-    (pd.Timestamp('2025-12-31', tz='Europe/Amsterdam'), 28620 + 1440),  # MWp DC # lower installed PV estimate update by https://x.com/BM_Visser/status/1954798688049697116
-    (pd.Timestamp('2026-12-31', tz='Europe/Amsterdam'), 28620 + 1440 + 1440),  # MWp DC
+    (pd.Timestamp('2025-12-31', tz='Europe/Amsterdam'), 28620 + 2100),  # MWp DC # lower installed PV estimate update by https://x.com/BM_Visser/status/1954798688049697116
+    (pd.Timestamp('2026-12-31', tz='Europe/Amsterdam'), 28620 + 2100 + 1440),  # MWp DC
 ]
 
 
@@ -97,29 +97,37 @@ print(df_combined)
 df_combined['month'] = df_combined['time'].dt.tz_localize(None).dt.to_period('M')
 
 monthly_summary = (
-    df_combined.groupby('month').apply(
-        lambda x: (
-            lambda avg_price, weighted_price: pd.Series({
-                'Total_PV_Energy_GWh': round(x['Solar_production_MW'].sum()/1000, 1),
-                'Value_per_MWp_DC_EUR': round(x['Solar_value'].sum() / x['installed_capacity_MW'].mean(), 1),
-                'Avg_DA_Price': round(avg_price, 1),
-                'PV_Weighted_Price': round(weighted_price, 1),
-                'profile_factor': round((weighted_price / avg_price)*100, 1) if avg_price != 0 else float('nan'),
-                'Installed_Capacity_GWp_DC': round(x['installed_capacity_MW'].mean() / 1000, 2)
-            })
-        )(
-            x['DA_price'].mean(),
-            (x['Solar_production_MW'] * x['DA_price']).sum() / x['Solar_production_MW'].sum() if x['Solar_production_MW'].sum() > 0 else float('nan')
-        )
-    )
-    .reset_index()
-    [['month', 'Total_PV_Energy_GWh', 'Value_per_MWp_DC_EUR', 'Avg_DA_Price', 'PV_Weighted_Price', 'profile_factor', 'Installed_Capacity_GWp_DC']]
+    df_combined.groupby('month').agg({
+        'Solar_production_MW': 'sum',
+        'Solar_value': 'sum',
+        'installed_capacity_MW': 'mean',
+        'DA_price': 'mean'
+    }).reset_index()
 )
+
+# Calculate derived columns
+monthly_summary['Total_PV_Energy_GWh'] = round(monthly_summary['Solar_production_MW']/1000, 1)
+monthly_summary['Value_per_MWp_DC_EUR'] = round(monthly_summary['Solar_value'] / monthly_summary['installed_capacity_MW'], 1)
+monthly_summary['Avg_DA_Price'] = round(monthly_summary['DA_price'], 1)
+
+# Calculate PV weighted price for each month
+monthly_summary['PV_Weighted_Price'] = monthly_summary.apply(
+    lambda row: (df_combined[df_combined['month'] == row['month']]['Solar_production_MW'] * 
+                 df_combined[df_combined['month'] == row['month']]['DA_price']).sum() / 
+                df_combined[df_combined['month'] == row['month']]['Solar_production_MW'].sum() 
+                if df_combined[df_combined['month'] == row['month']]['Solar_production_MW'].sum() > 0 else float('nan'), axis=1
+)
+
+monthly_summary['profile_factor'] = round((monthly_summary['PV_Weighted_Price'] / monthly_summary['Avg_DA_Price'])*100, 1)
+monthly_summary['Installed_Capacity_GWp_DC'] = round(monthly_summary['installed_capacity_MW'] / 1000, 2)
+
+# Select and reorder columns
+monthly_summary = monthly_summary[['month', 'Total_PV_Energy_GWh', 'Value_per_MWp_DC_EUR', 'Avg_DA_Price', 'PV_Weighted_Price', 'profile_factor', 'Installed_Capacity_GWp_DC']]
 
 print("\nMonthly Summary:")
 # Round first 3 columns to 1 digits
 monthly_summary_rounded = monthly_summary.copy()
-monthly_summary_rounded.iloc[:, 1:4] = monthly_summary_rounded.iloc[:, 1:4].round(1)
+monthly_summary_rounded.loc[:, monthly_summary_rounded.columns[1:4]] = monthly_summary_rounded.iloc[:, 1:4].round(1)
 #print(monthly_summary_rounded.to_string(index=False, float_format='%.0f').replace(',', '.'))
 monthly_summary_df = pd.DataFrame(monthly_summary_rounded)
 print(monthly_summary_df)
@@ -137,18 +145,30 @@ from plotly.subplots import make_subplots  # type: ignore
 df_combined['month_date'] = df_combined['time'].dt.tz_localize(None).dt.to_period('M').dt.to_timestamp()
 
 monthly = (
-    df_combined.groupby('month_date').apply(
-        lambda x: pd.Series({
-            'Monthly_PV_Energy_MWh': round(x['Solar_production_MW'].sum(), 1),
-            'Monthly_Value_per_MWp_DC_EUR': round(x['Solar_value'].sum() / x['installed_capacity_MW'].mean(), 1),
-            'Monthly_PV_Power_Weighted_DA_Price': (x['Solar_production_MW'] * x['DA_price']).sum() / x['Solar_production_MW'].sum() if x['Solar_production_MW'].sum() > 0 else float('nan'),
-            'Monthly_Installed_Capacity_MW': x['installed_capacity_MW'].mean(),  # or .last() for end-of-month
-            'Monthly_Avg_DA_Price': x['DA_price'].mean(),
-        })
-    )
-    .reset_index()
-    [['month_date', 'Monthly_PV_Energy_MWh', 'Monthly_Value_per_MWp_DC_EUR', 'Monthly_PV_Power_Weighted_DA_Price', 'Monthly_Installed_Capacity_MW', 'Monthly_Avg_DA_Price']]
+    df_combined.groupby('month_date').agg({
+        'Solar_production_MW': 'sum',
+        'Solar_value': 'sum',
+        'installed_capacity_MW': 'mean',
+        'DA_price': 'mean'
+    }).reset_index()
 )
+
+# Calculate derived columns
+monthly['Monthly_PV_Energy_MWh'] = round(monthly['Solar_production_MW'], 1)
+monthly['Monthly_Value_per_MWp_DC_EUR'] = round(monthly['Solar_value'] / monthly['installed_capacity_MW'], 1)
+monthly['Monthly_Installed_Capacity_MW'] = monthly['installed_capacity_MW']
+monthly['Monthly_Avg_DA_Price'] = monthly['DA_price']
+
+# Calculate PV weighted price for each month
+monthly['Monthly_PV_Power_Weighted_DA_Price'] = monthly.apply(
+    lambda row: (df_combined[df_combined['month_date'] == row['month_date']]['Solar_production_MW'] * 
+                 df_combined[df_combined['month_date'] == row['month_date']]['DA_price']).sum() / 
+                df_combined[df_combined['month_date'] == row['month_date']]['Solar_production_MW'].sum() 
+                if df_combined[df_combined['month_date'] == row['month_date']]['Solar_production_MW'].sum() > 0 else float('nan'), axis=1
+)
+
+# Select and reorder columns
+monthly = monthly[['month_date', 'Monthly_PV_Energy_MWh', 'Monthly_Value_per_MWp_DC_EUR', 'Monthly_PV_Power_Weighted_DA_Price', 'Monthly_Installed_Capacity_MW', 'Monthly_Avg_DA_Price']]
 
 # Calculate profile factor
 monthly['Monthly_Profile_Factor'] = (monthly['Monthly_PV_Power_Weighted_DA_Price'] / monthly['Monthly_Avg_DA_Price']) * 100
@@ -187,13 +207,20 @@ yearly_solar_values['Yearly_Value_per_MWp_DC_EUR'] = yearly_solar_values['Yearly
 yearly_totals = yearly_totals.merge(yearly_solar_values[['year', 'Yearly_Value_per_MWp_DC_EUR']], on='year')
 
 # Calculate yearly weighted average price
-yearly_weighted_prices = df_combined.groupby(df_combined['time'].dt.year).apply(
-    lambda x: (x['Solar_production_MW'] * x['DA_price']).sum() / x['Solar_production_MW'].sum() if x['Solar_production_MW'].sum() > 0 else float('nan')
-).reset_index()
-yearly_weighted_prices = yearly_weighted_prices.rename(columns={
-    'time': 'year',
-    0: 'Yearly_PV_Weighted_Price'
-})
+yearly_weighted_prices = df_combined.groupby(df_combined['time'].dt.year).agg({
+    'Solar_production_MW': 'sum',
+    'DA_price': 'mean'
+}).reset_index()
+
+# Calculate weighted price manually
+yearly_weighted_prices['Yearly_PV_Weighted_Price'] = yearly_weighted_prices.apply(
+    lambda row: (df_combined[df_combined['time'].dt.year == row['time']]['Solar_production_MW'] * 
+                 df_combined[df_combined['time'].dt.year == row['time']]['DA_price']).sum() / 
+                df_combined[df_combined['time'].dt.year == row['time']]['Solar_production_MW'].sum() 
+                if df_combined[df_combined['time'].dt.year == row['time']]['Solar_production_MW'].sum() > 0 else float('nan'), axis=1
+)
+
+yearly_weighted_prices = yearly_weighted_prices.rename(columns={'time': 'year'})
 yearly_weighted_prices = yearly_weighted_prices[['year', 'Yearly_PV_Weighted_Price']]
 
 # Merge yearly data
@@ -288,7 +315,7 @@ fig.add_trace(
 # Second subplot: Monthly PV energy production (lines per year)
 # Create separate traces for each year
 for year in sorted(monthly['year'].unique()):
-    year_data = monthly[monthly['year'] == year]
+    year_data = monthly[monthly['year'] == year].copy()
     # Extract month number (1-12) for x-axis
     year_data['month_num'] = year_data['month_date'].dt.month
     
@@ -309,7 +336,7 @@ fig.update_xaxes(title_text='Month', row=2, col=1, tickmode='array', tickvals=li
 
 # Third subplot: Monthly PV Market Value (lines per year)
 for year in sorted(monthly['year'].unique()):
-    year_data = monthly[monthly['year'] == year]
+    year_data = monthly[monthly['year'] == year].copy()
     year_data['month_num'] = year_data['month_date'].dt.month
     
     fig.add_trace(
@@ -329,7 +356,7 @@ fig.update_xaxes(title_text='Month', row=3, col=1, tickmode='array', tickvals=li
 
 # Fourth subplot: Monthly Profile Factor (lines per year)
 for year in sorted(monthly['year'].unique()):
-    year_data = monthly[monthly['year'] == year]
+    year_data = monthly[monthly['year'] == year].copy()
     year_data['month_num'] = year_data['month_date'].dt.month
     
     # Profile Factor line

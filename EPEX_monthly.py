@@ -88,14 +88,5 @@ for year in range(start_year, end_year + 1):
         else:
             print(f"No data for {year}-{month:02d}")
 
-# Optionally, combine all loaded data for further analysis
-if all_data:
-    df = pd.concat(all_data)
-    print("Combined DataFrame:")
-    print(df)
-    df['time'] = pd.to_datetime(df['time'], utc=True) # .dt.tz_convert('Europe/Amsterdam')
-    df.insert(1, 'hour', df['time'].dt.hour)
-    print(df)
-    df.to_csv('data/DA_prices_combined.csv', index=False)
 
 
