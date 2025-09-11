@@ -1,5 +1,5 @@
 import json, requests, time
-from datetime import date, timedelta
+from datetime import date, timedelta, datetime
 import pandas as pd
 import calendar
 
@@ -18,8 +18,10 @@ daysstep    = 6                 # De API kan om een of andere reden maar 144 dat
 if not os.path.exists('data'):
     os.makedirs('data')
 
+
+
 start_date = date(2019, 1, 1)
-end_date = date.today()
+end_date = date.today()  # Download until tomorrow
 
 url = "https://api.ned.nl/v1/utilizations"
 df1 = pd.DataFrame(columns=['capacity', 'percentage','validfrom']) # initialise dataframe
@@ -60,7 +62,7 @@ while current <= end_date:
             'type': 2,                    # 1 = Wind, 2 = Solar, 27 = CO2 emissions
             'granularity': 5,             # 3 = 10min, 4 = 15min, 5 = 1 hour, 6 = 1 day, 7 = 1 month, 8 = 1 year
             'granularitytimezone': 0,     # 0 = UTC, 1 = CET
-            'classification': 2,          # 1 = future prediction, 2 = current, 3 = backcast
+            'classification': 1,          # 1 = future prediction (day-ahead), 2 = current, 3 = backcast
             'activity': 1,                # 1 = providing
             'validfrom[after]': period_start.strftime("%Y-%m-%d"),
             'validfrom[strictly_before]': next_date.strftime("%Y-%m-%d")
