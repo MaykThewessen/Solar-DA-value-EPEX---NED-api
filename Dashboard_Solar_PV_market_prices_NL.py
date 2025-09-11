@@ -131,7 +131,14 @@ monthly_summary['PV_Weighted_Price'] = monthly_summary.apply(
 )
 
 monthly_summary['profile_factor'] = round((monthly_summary['PV_Weighted_Price'] / monthly_summary['Avg_DA_Price'])*100, 1)
-monthly_summary['Installed_Capacity_GWp_DC'] = round(monthly_summary['installed_capacity_MW'] / 1000, 2)
+
+# Calculate July 1st installed capacity for each year in monthly summary
+def get_july_1st_capacity_for_month(month_period):
+    year = month_period.year
+    july_1st = pd.Timestamp(f'{year}-07-01', tz='Europe/Amsterdam')
+    return fit_installed_capacity(july_1st)
+
+monthly_summary['Installed_Capacity_GWp_DC'] = round(monthly_summary['month'].apply(get_july_1st_capacity_for_month) / 1000, 2)
 
 # Select and reorder columns
 monthly_summary = monthly_summary[['month', 'Total_PV_Energy_GWh', 'Value_per_MWp_DC_EUR', 'Avg_DA_Price', 'PV_Weighted_Price', 'profile_factor', 'Installed_Capacity_GWp_DC']]
@@ -300,7 +307,13 @@ year_to_color = dict(zip(years_list, color_scheme))
 # Prepare yearly summary data for table
 yearly_summary_for_table = yearly_totals.copy()
 yearly_summary_for_table['Yearly_PV_Energy_GWh'] = yearly_summary_for_table['Yearly_PV_Energy_MWh'] / 1000
-yearly_summary_for_table['Yearly_Installed_Capacity_GWp_DC'] = yearly_summary_for_table['Yearly_Installed_Capacity_MW'] / 1000
+
+# Calculate July 1st installed capacity for each year
+def get_july_1st_capacity(year):
+    july_1st = pd.Timestamp(f'{year}-07-01', tz='Europe/Amsterdam')
+    return fit_installed_capacity(july_1st)
+
+yearly_summary_for_table['Yearly_Installed_Capacity_GWp_DC'] = yearly_summary_for_table['year'].apply(get_july_1st_capacity) / 1000
 # Calculate MWh/MWp installed produced
 yearly_summary_for_table['Yearly_MWh_per_MWp'] = yearly_summary_for_table['Yearly_PV_Energy_MWh'] / (yearly_summary_for_table['Yearly_Installed_Capacity_GWp_DC']*1000 )
 yearly_summary_for_table = yearly_summary_for_table.round(1)
@@ -338,7 +351,7 @@ fig = make_subplots(
         [{"secondary_y": False}],
         [{"secondary_y": False}],
         [{"secondary_y": False}],
-        [{"type": "table"}]
+         [{"type": "table"}]
     ],
     row_heights=[0.18, 0.18, 0.18, 0.18, 0.18, 0.40]  # Adjusted heights for 6 subplots
 )
@@ -387,7 +400,7 @@ fig.update_xaxes(title_text='', row=1, col=1)
 fig.add_trace(
     go.Table(
         header=dict(
-            values=['Year', 'PV Energy produced (GWh/y)', 'Installed PV Capacity in NL (GWp) mid-year', 'MWh yield / MWp installed', 'Annual Market value (EUR/MWp/y)', 'Day-Ahead linear avg price (EUR/MWh)', 'PV-profile weighted price (EUR/MWh)', 'Profile Factor of PV (%)'],
+            values=['Year', 'PV Energy produced (GWh/y)', 'Installed PV Capacity in NL (GWp) July 1st', 'MWh yield / MWp installed', 'Annual Market value (EUR/MWp/y)', 'Day-Ahead linear avg price (EUR/MWh)', 'PV-profile weighted price (EUR/MWh)', 'Profile Factor of PV (%)'],
             font=dict(size=10),
             align='left'
         ),
@@ -559,7 +572,7 @@ monthly_summary_rounded_reversed = monthly_summary_rounded.sort_values('month', 
 
 table_fig = go.Figure(data=[go.Table(
     header=dict(
-        values=['Month', 'PV Energy produced (GWh)', 'Installed Capacity (GWp) month-avg', 'Market value (EUR/MWp/year)', 'Day-Ahead linear average price (EUR/MWh)', 'PV-profile Weighted price (EUR/MWh)', 'Profile Factor of PV (%)'],
+        values=['Month', 'PV Energy produced (GWh)', 'Installed Capacity (GWp) July 1st', 'Market value (EUR/MWp/year)', 'Day-Ahead linear average price (EUR/MWh)', 'PV-profile Weighted price (EUR/MWh)', 'Profile Factor of PV (%)'],
         font=dict(size=10),
         align='left'
     ),

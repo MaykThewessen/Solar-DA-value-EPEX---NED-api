@@ -20,7 +20,7 @@ if not os.path.exists('data'):
 
 
 
-start_date = date(2019, 1, 1)
+start_date = date(2018, 1, 1)
 end_date = date.today()  # Download until tomorrow
 
 url = "https://api.ned.nl/v1/utilizations"
