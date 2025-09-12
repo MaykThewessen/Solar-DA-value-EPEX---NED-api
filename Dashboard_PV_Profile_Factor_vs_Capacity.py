@@ -136,14 +136,14 @@ def get_july_1st_capacity(year):
     july_1st = pd.Timestamp(f'{year}-07-01', tz='Europe/Amsterdam')
     return fit_installed_capacity(july_1st)
 
-yearly_totals['July_1st_Installed_Capacity_GWp_DC'] = yearly_totals['year'].apply(get_july_1st_capacity) / 1000
+yearly_totals['Installed_Capacity_GWp_DC'] = yearly_totals['year'].apply(get_july_1st_capacity) / 1000
 
 # Select and clean data for plotting
-plot_data = yearly_totals[['year', 'July_1st_Installed_Capacity_GWp_DC', 'Yearly_Profile_Factor']].copy()
+plot_data = yearly_totals[['year', 'Installed_Capacity_GWp_DC', 'Yearly_Profile_Factor']].copy()
 plot_data = plot_data.dropna()
 
 print("\nYearly data for plotting:")
-print(plot_data)
+print(plot_data.round(1))
 
 # Create the scatter plot
 import plotly.graph_objs as go  # type: ignore
@@ -225,11 +225,11 @@ if len(plot_data) > 2:
     
     if len(trend_data) > 2:
         # Calculate exponential regression using filtered data
-        x_vals = trend_data['July_1st_Installed_Capacity_GWp_DC'].values
+        x_vals = trend_data['Installed_Capacity_GWp_DC'].values
         y_vals = trend_data['Yearly_Profile_Factor'].values
     else:
         # Fallback to all data if filtered data has insufficient points
-        x_vals = plot_data['July_1st_Installed_Capacity_GWp_DC'].values
+        x_vals = plot_data['Installed_Capacity_GWp_DC'].values
         y_vals = plot_data['Yearly_Profile_Factor'].values
     
     # Fit exponential regression: y = a * exp(b * x)
@@ -248,7 +248,7 @@ if len(plot_data) > 2:
     
     # Create trend line starting from 2018 data point to January 1, 2026
     # Get the 2018 data point (first point in trend_data)
-    x_2018 = trend_data['July_1st_Installed_Capacity_GWp_DC'].iloc[0]
+    x_2018 = trend_data['Installed_Capacity_GWp_DC'].iloc[0]
     y_2018 = trend_data['Yearly_Profile_Factor'].iloc[0]
     x_extended_linear = np.linspace(x_2018, jan_1_capacity, 50)
     trend_line_extended_linear = np.polyval(coeffs_linear, x_extended_linear)
@@ -442,7 +442,7 @@ if len(plot_data) > 2:
 # Add scatter plot points (after trend lines to appear on top)
 for i, row in plot_data.iterrows():
     year = row['year']
-    capacity = row['July_1st_Installed_Capacity_GWp_DC']
+    capacity = row['Installed_Capacity_GWp_DC']
     profile_factor = row['Yearly_Profile_Factor']
     
     fig.add_trace(
@@ -471,7 +471,7 @@ for i, row in plot_data.iterrows():
 if 2022 in plot_data['year'].values:
     data_2022 = plot_data[plot_data['year'] == 2022].iloc[0]
     fig.add_annotation(
-        x=data_2022['July_1st_Installed_Capacity_GWp_DC']+1,
+        x=data_2022['Installed_Capacity_GWp_DC']+1,
         y=data_2022['Yearly_Profile_Factor']+1,
         text='Outlier: gas-crisis',
         showarrow=True,
@@ -491,7 +491,7 @@ if 2022 in plot_data['year'].values:
 if len(plot_data) > 2:
     # Use the same filtered data for correlation as used for trend line
     if 'trend_data' in locals() and len(trend_data) > 2:
-        correlation = np.corrcoef(trend_data['July_1st_Installed_Capacity_GWp_DC'].values, trend_data['Yearly_Profile_Factor'].values)[0, 1]
+        correlation = np.corrcoef(trend_data['Installed_Capacity_GWp_DC'].values, trend_data['Yearly_Profile_Factor'].values)[0, 1]
         slope = coeffs_linear[0]  # slope from linear trend
     else:
         correlation = np.corrcoef(x_vals, y_vals)[0, 1]
@@ -532,7 +532,7 @@ print(f"  - HTML: pv_profile_factor_vs_capacity_dashboard.html")
 print(f"  - PDF: pv_profile_factor_vs_capacity_dashboard.pdf")
 print(f"Data points: {len(plot_data)} years")
 print(f"Years covered: {plot_data['year'].min()} - {plot_data['year'].max()}")
-print(f"Capacity range: {plot_data['July_1st_Installed_Capacity_GWp_DC'].min():.2f} - {plot_data['July_1st_Installed_Capacity_GWp_DC'].max():.2f} GWp DC")
+print(f"Capacity range: {plot_data['Installed_Capacity_GWp_DC'].min():.2f} - {plot_data['Installed_Capacity_GWp_DC'].max():.2f} GWp DC")
 print(f"Profile factor range: {plot_data['Yearly_Profile_Factor'].min():.1f} - {plot_data['Yearly_Profile_Factor'].max():.1f}%")
 
 if len(plot_data) > 2:
