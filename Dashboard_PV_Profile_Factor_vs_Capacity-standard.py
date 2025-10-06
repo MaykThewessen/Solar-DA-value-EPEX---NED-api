@@ -145,32 +145,26 @@ plot_data = plot_data.dropna()
 print("\nYearly data for plotting:")
 print(plot_data.round(1))
 
-# Create the scatter plot using matplotlib with xkcd style
+# Create the scatter plot using matplotlib with standard style
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from matplotlib.patches import FancyBboxPatch
 import matplotlib.font_manager as fm
 
-# Set up matplotlib with xkcd style (with font fallback)
-try:
-    plt.xkcd()  # Enable xkcd style
-    print("xkcd style enabled successfully")
-except Exception as e:
-    print(f"Warning: Could not enable xkcd style: {e}")
-    print("Using standard matplotlib style with hand-drawn appearance")
-    # Set up a hand-drawn style manually
-    plt.rcParams['font.family'] = 'sans-serif'
-    plt.rcParams['font.sans-serif'] = ['Arial', 'DejaVu Sans', 'Liberation Sans', 'Bitstream Vera Sans', 'sans-serif']
-    plt.rcParams['axes.linewidth'] = 2
-    plt.rcParams['xtick.major.width'] = 2
-    plt.rcParams['ytick.major.width'] = 2
-    plt.rcParams['xtick.minor.width'] = 1.5
-    plt.rcParams['ytick.minor.width'] = 1.5
-    plt.rcParams['axes.spines.top'] = False
-    plt.rcParams['axes.spines.right'] = False
-    plt.rcParams['axes.edgecolor'] = 'black'
-    plt.rcParams['axes.facecolor'] = 'white'
-    plt.rcParams['figure.facecolor'] = 'white'
+# Set up matplotlib with clean, professional style
+plt.style.use('default')
+plt.rcParams['font.family'] = 'sans-serif'
+plt.rcParams['font.sans-serif'] = ['Arial', 'DejaVu Sans', 'Liberation Sans', 'Bitstream Vera Sans', 'sans-serif']
+plt.rcParams['axes.linewidth'] = 1.5
+plt.rcParams['xtick.major.width'] = 1.5
+plt.rcParams['ytick.major.width'] = 1.5
+plt.rcParams['xtick.minor.width'] = 1
+plt.rcParams['ytick.minor.width'] = 1
+plt.rcParams['axes.spines.top'] = False
+plt.rcParams['axes.spines.right'] = False
+plt.rcParams['axes.edgecolor'] = 'black'
+plt.rcParams['axes.facecolor'] = 'white'
+plt.rcParams['figure.facecolor'] = 'white'
 
 # Create custom color scheme with distinct, distinguishable colors for each year
 years_list = sorted(plot_data['year'].unique())
@@ -209,7 +203,7 @@ year_to_color = dict(zip(years_list, color_scheme))
 # Create the figure and axis
 fig, ax = plt.subplots(figsize=(12, 8))
 
-# Set up the plot with xkcd styling
+# Set up the plot with clean styling
 ax.set_xlim(0, 100)
 ax.set_ylim(0, 105)
 ax.set_xlabel('Installed PV Capacity NL (GWp DC) yearly avg', fontsize=14)
@@ -220,14 +214,6 @@ ax.set_title('PV Profile Factor vs Installed Capacity Solar PV in Netherlands\nE
 # Add grid
 ax.grid(True, alpha=0.3, linewidth=1)
 ax.set_axisbelow(True)
-
-# Add some hand-drawn styling if xkcd style failed
-if not hasattr(plt.rcParams, '_xkcd_style') or not plt.rcParams._xkcd_style:
-    # Make the plot look more hand-drawn
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
-    ax.spines['left'].set_linewidth(2)
-    ax.spines['bottom'].set_linewidth(2)
 
 # Add trend line
 if len(plot_data) > 2:
@@ -266,7 +252,7 @@ if len(plot_data) > 2:
     
     # Add solid linear trend line starting from 2018 data point
     ax.plot(x_extended_linear, trend_line_extended_linear, 
-            color='red', linewidth=4, label='Linear Trend', alpha=0.8)
+            color='red', linewidth=3, label='Linear Trend', alpha=0.8)
     
     if len(y_valid) > 1:
         # Linear fit on log-transformed data for exponential extrapolation
@@ -292,7 +278,7 @@ if len(plot_data) > 2:
             
             # Add linear extrapolation line
             ax.plot(x_linear_to_zero, y_linear_to_zero, 
-                    color='red', linewidth=4, linestyle=':', 
+                    color='red', linewidth=3, linestyle=':', 
                     label='Linear Extrapolation', alpha=0.8)
 
             
@@ -312,7 +298,7 @@ if len(plot_data) > 2:
             
             # Add exponential extrapolation line
             ax.plot(x_extrapolation, y_extrapolation, 
-                    color='orange', linewidth=4, linestyle='--', 
+                    color='orange', linewidth=3, linestyle='--', 
                     label='Exponential Extrapolation', alpha=0.8)
             
             # Add annotations for different threshold levels
@@ -366,7 +352,7 @@ if len(plot_data) > 2:
         
         # Add fallback linear trend line
         ax.plot(x_extended, trend_line_extended, 
-                color='red', linewidth=4, 
+                color='red', linewidth=3, 
                 label='Linear Trend (fallback)', alpha=0.8)
 
 # Add scatter plot points (after trend lines to appear on top)
@@ -435,15 +421,15 @@ ax.legend(bbox_to_anchor=(1.05, 1), loc='upper left', fontsize=10)
 plt.tight_layout()
 
 # Save the plot
-plt.savefig('pv_profile_factor_vs_capacity_dashboard_xkcd.pdf', format='pdf', dpi=300, bbox_inches='tight')
-plt.savefig('pv_profile_factor_vs_capacity_dashboard_xkcd.png', format='png', dpi=300, bbox_inches='tight')
+plt.savefig('pv_profile_factor_vs_capacity_dashboard_standard.pdf', format='pdf', dpi=300, bbox_inches='tight')
+plt.savefig('pv_profile_factor_vs_capacity_dashboard_standard.png', format='png', dpi=300, bbox_inches='tight')
 
 # Show the plot
 plt.show()
 
 print(f"\nDashboard created:")
-print(f"  - PDF: pv_profile_factor_vs_capacity_dashboard_xkcd.pdf")
-print(f"  - PNG: pv_profile_factor_vs_capacity_dashboard_xkcd.png")
+print(f"  - PDF: pv_profile_factor_vs_capacity_dashboard_standard.pdf")
+print(f"  - PNG: pv_profile_factor_vs_capacity_dashboard_standard.png")
 print(f"Data points: {len(plot_data)} years")
 print(f"Years covered: {plot_data['year'].min()} - {plot_data['year'].max()}")
 print(f"Capacity range: {plot_data['Installed_Capacity_GWp_DC'].min():.2f} - {plot_data['Installed_Capacity_GWp_DC'].max():.2f} GWp DC")

@@ -21,7 +21,8 @@ if not os.path.exists('data'):
 
 
 start_date = date(2018, 1, 1)
-end_date = date.today()  # Download until tomorrow
+today = date.today()
+end_date = date(today.year, today.month, 1) - timedelta(days=1)
 
 url = "https://api.ned.nl/v1/utilizations"
 df1 = pd.DataFrame(columns=['capacity', 'percentage','validfrom']) # initialise dataframe
@@ -61,7 +62,7 @@ while current <= end_date:
             'point': 0,                   # 0 = NL, https://ned.nl/nl/handleiding-api
             'type': 2,                    # 1 = Wind, 2 = Solar, 27 = CO2 emissions
             'granularity': 5,             # 3 = 10min, 4 = 15min, 5 = 1 hour, 6 = 1 day, 7 = 1 month, 8 = 1 year
-            'granularitytimezone': 0,     # 0 = UTC, 1 = CET
+            'granularitytimezone': 1,     # 0 = UTC, 1 = CET
             'classification': 1,          # 1 = future prediction (day-ahead), 2 = current, 3 = backcast
             'activity': 1,                # 1 = providing
             'validfrom[after]': period_start.strftime("%Y-%m-%d"),
@@ -84,14 +85,21 @@ while current <= end_date:
 
         df1['percentage'] = df1['percentage'].round(4)
         df1 = df1.rename(columns={'validfrom': 'time'})
-        df1['time'] = pd.to_datetime(df1['time'], utc=True)
+        # Convert to datetime and handle timezone
+        df1['time'] = pd.to_datetime(df1['time'])
+        if df1['time'].dt.tz is None:
+            # If timezone-naive, localize to Europe/Brussels
+            df1['time'] = df1['time'].dt.tz_localize('Europe/Brussels')
+        else:
+            # If already timezone-aware, convert to Europe/Brussels
+            df1['time'] = df1['time'].dt.tz_convert('Europe/Brussels')
         df1 = df1.set_index('time')
         
 
         timestep_hours = (df1.index[1] - df1.index[0]).total_seconds() / 3600
         
         #df1['energy_kwh'] = df1['Solar_production_kW'] * timestep_hours
-        df1.to_csv(exportname)
+        df1.to_csv(exportname, date_format='%Y-%m-%d %H:%M:%S%z')
         print(f"Data exported to {exportname}")
     # Always increment to the first day of the next month
     if current.month == 12:

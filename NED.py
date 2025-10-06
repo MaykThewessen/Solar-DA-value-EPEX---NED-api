@@ -35,7 +35,7 @@ while current <= end_date:
         'point': 0,                   # 0 = NL, https://ned.nl/nl/handleiding-api
         'type': 2,                    # 2 = Solar, 27 = CO2 emissions
         'granularity': 5,             # 3 = 10min, 4 = 15min, 5 = 1 hour, 6 = 1 day, 7 = 1 month, 8 = 1 year
-        'granularitytimezone': 0,     # 0 = UTC, 1 = CET
+        'granularitytimezone': 1,     # 0 = UTC, 1 = CET
         'classification': 2,          # 1 = future prediction, 2 = current, 3 = backcast
         'activity': 1,                # 1 = providing
         'validfrom[after]': current.strftime("%Y-%m-%d"),
@@ -57,7 +57,7 @@ print(df1)
 
 
 df1 = df1.rename(columns={'capacity': 'Solar_production_kW'})
-df1['validfrom'] = pd.to_datetime(df1['validfrom'], utc=True) # .dt.tz_convert('Europe/Amsterdam'
+df1['validfrom'] = pd.to_datetime(df1['validfrom']).dt.tz_localize('Europe/Brussels')
 df1 = df1.set_index('validfrom')
 
 
@@ -111,5 +111,5 @@ fig.write_html("solar_production_plot.html", auto_open=True)
 
 
 
-df1.to_csv(exportname, index=False)
+df1.to_csv(exportname, date_format='%Y-%m-%d %H:%M:%S%z')
 print(f"Data exported to {exportname}")

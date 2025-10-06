@@ -81,8 +81,9 @@ for year in range(start_year, end_year + 1):
         DA = get_da_prices_chunked(client, country_code, start, end)
         if not DA.empty:
             DA.rename(columns={DA.columns[0]: 'time', DA.columns[1]: 'DA_price'}, inplace=True)
-            #DA['time'] = pd.to_datetime(DA['time'], utc=True)
-            DA.to_csv(file_path, index=False)
+            # Ensure time column is in Brussels timezone
+            DA['time'] = pd.to_datetime(DA['time']).dt.tz_convert('Europe/Brussels')
+            DA.to_csv(file_path, index=False, date_format='%Y-%m-%d %H:%M:%S%z')
             print(f"Saved data to {file_path}")
             all_data.append(DA)
         else:

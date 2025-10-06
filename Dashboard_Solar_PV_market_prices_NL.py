@@ -25,6 +25,7 @@ for f in price_files:
     # Remove white spaces at beginning and end of all string columns
     for col in df.select_dtypes(include=['object']).columns:
         df[col] = df[col].astype(str).str.strip()
+    # Convert time column to datetime and ensure it's in Amsterdam timezone
     df['time'] = pd.to_datetime(df['time'], utc=True).dt.tz_convert('Europe/Amsterdam')
     price_dfs.append(df)
 df_prices = pd.concat(price_dfs, ignore_index=True)
@@ -36,6 +37,7 @@ for f in pv_files:
     # Remove white spaces at beginning and end of all string columns
     for col in df.select_dtypes(include=['object']).columns:
         df[col] = df[col].astype(str).str.strip()
+    # Convert time column to datetime and ensure it's in Amsterdam timezone
     df['time'] = pd.to_datetime(df['time'], utc=True).dt.tz_convert('Europe/Amsterdam')
     pv_dfs.append(df)
 df_pv = pd.concat(pv_dfs, ignore_index=True)
@@ -46,6 +48,9 @@ df_pv = pd.concat(pv_dfs, ignore_index=True)
 
 # Merge the two dataframes on the 'time' column
 df_combined = pd.merge(df_prices, df_pv, on='time', how='left')
+
+# Ensure time column is datetime and in Amsterdam timezone after merge
+df_combined['time'] = pd.to_datetime(df_combined['time']).dt.tz_convert('Europe/Amsterdam')
 
 # Remove white spaces at beginning and end of all string columns in combined dataframe
 for col in df_combined.select_dtypes(include=['object']).columns:
@@ -83,21 +88,17 @@ capacities = np.array([cap for _, cap in capacity_points])
 fit_coeffs = np.polyfit(dates, capacities, 1)
 
 def fit_installed_capacity(date):
-    # Ensure date is a pandas Timestamp with tz
+    # Ensure date is a pandas Timestamp
     if not isinstance(date, pd.Timestamp):
         date = pd.Timestamp(date)
-    if date.tz is None:
-        date = date.tz_localize('Europe/Amsterdam')
-    # Convert date to days since first anchor
+    # Convert date to days since first anchor (both dates should be in same timezone)
     days_since = (date - capacity_points[0][0]).days
     # Linear fit: capacity = m * days + b
     capacity = fit_coeffs[0] * days_since + fit_coeffs[1]
     return round(capacity, 0)
 
 # Add the new column to df_combined
-# Ensure 'time' is timezone-aware and in Europe/Amsterdam
-if df_combined['time'].dt.tz is None:
-    df_combined['time'] = df_combined['time'].dt.tz_localize('Europe/Amsterdam')
+# Time column is already in correct timezone format
 df_combined['installed_capacity_MW'] = df_combined['time'].apply(fit_installed_capacity)
 
 
@@ -105,51 +106,8 @@ print(df_combined)
 
 
 # summarize per month
-# Remove timezone before converting to Period to avoid warning
-df_combined['month'] = df_combined['time'].dt.tz_localize(None).dt.to_period('M')
-
-monthly_summary = (
-    df_combined.groupby('month').agg({
-        'Solar_production_MW': 'sum',
-        'Solar_value': 'sum',
-        'installed_capacity_MW': 'mean',
-        'DA_price': 'mean'
-    }).reset_index()
-)
-
-# Calculate derived columns
-monthly_summary['Total_PV_Energy_GWh'] = round(monthly_summary['Solar_production_MW']/1000, 1)
-monthly_summary['Value_per_MWp_DC_EUR'] = round(monthly_summary['Solar_value'] / monthly_summary['installed_capacity_MW'], 1)
-monthly_summary['Avg_DA_Price'] = round(monthly_summary['DA_price'], 1)
-
-# Calculate PV weighted price for each month
-monthly_summary['PV_Weighted_Price'] = monthly_summary.apply(
-    lambda row: (df_combined[df_combined['month'] == row['month']]['Solar_production_MW'] * 
-                 df_combined[df_combined['month'] == row['month']]['DA_price']).sum() / 
-                df_combined[df_combined['month'] == row['month']]['Solar_production_MW'].sum() 
-                if df_combined[df_combined['month'] == row['month']]['Solar_production_MW'].sum() > 0 else float('nan'), axis=1
-)
-
-monthly_summary['profile_factor'] = round((monthly_summary['PV_Weighted_Price'] / monthly_summary['Avg_DA_Price'])*100, 1)
-
-# Calculate July 1st installed capacity for each year in monthly summary
-def get_july_1st_capacity_for_month(month_period):
-    year = month_period.year
-    july_1st = pd.Timestamp(f'{year}-07-01', tz='Europe/Amsterdam')
-    return fit_installed_capacity(july_1st)
-
-monthly_summary['Installed_Capacity_GWp_DC'] = round(monthly_summary['month'].apply(get_july_1st_capacity_for_month) / 1000, 2)
-
-# Select and reorder columns
-monthly_summary = monthly_summary[['month', 'Total_PV_Energy_GWh', 'Value_per_MWp_DC_EUR', 'Avg_DA_Price', 'PV_Weighted_Price', 'profile_factor', 'Installed_Capacity_GWp_DC']]
-
-print("\nMonthly Summary:")
-# Round first 3 columns to 1 digits
-monthly_summary_rounded = monthly_summary.copy()
-monthly_summary_rounded.loc[:, monthly_summary_rounded.columns[1:4]] = monthly_summary_rounded.iloc[:, 1:4].round(1)
-#print(monthly_summary_rounded.to_string(index=False, float_format='%.0f').replace(',', '.'))
-monthly_summary_df = pd.DataFrame(monthly_summary_rounded)
-print(monthly_summary_df)
+# Convert to Period for monthly grouping
+df_combined['month'] = df_combined['time'].dt.to_period('M')
 
 
 # Plot the combined dataframe using plotly
@@ -161,8 +119,8 @@ import plotly.colors  # type: ignore
 # 1. PV power and Day-ahead price (hourly)
 
 # 2. Monthly PV yield (sum), PV value (sum), and PV_power_weighted_DA_price (monthly avg)
-# Remove timezone before converting to Period to avoid warning
-df_combined['month_date'] = df_combined['time'].dt.tz_localize(None).dt.to_period('M').dt.to_timestamp()
+# Convert to Period and then to timestamp for plotting
+df_combined['month_date'] = df_combined['time'].dt.to_period('M').dt.to_timestamp()
 
 monthly = (
     df_combined.groupby('month_date').agg({
@@ -195,6 +153,55 @@ monthly['Monthly_Profile_Factor'] = (monthly['Monthly_PV_Power_Weighted_DA_Price
 
 # Normalize by installed capacity
 monthly['Monthly_PV_Yield_per_MW'] = monthly['Monthly_PV_Energy_MWh'] / monthly['Monthly_Installed_Capacity_MW']
+
+# Filter to only include complete months (exclude current incomplete month)
+from datetime import datetime
+current_date = datetime.now()
+last_complete_month = current_date.replace(day=1) - pd.Timedelta(days=1)  # Last day of previous month
+last_complete_month_period = pd.Period(last_complete_month, freq='M')
+
+# Convert to timezone-aware timestamp for comparison
+last_complete_timestamp = pd.Timestamp(last_complete_month_period.end_time, tz='Europe/Amsterdam')
+
+# Filter monthly data to exclude incomplete months
+monthly = monthly[monthly['month_date'] <= last_complete_month_period.to_timestamp()]
+
+# Also filter the original df_combined for consistency in calculations
+df_combined = df_combined[df_combined['time'] <= last_complete_timestamp]
+
+# Recalculate monthly_summary with filtered data
+monthly_summary = (
+    df_combined.groupby('month').agg({
+        'Solar_production_MW': 'sum',
+        'Solar_value': 'sum',
+        'installed_capacity_MW': 'mean',
+        'DA_price': 'mean'
+    }).reset_index()
+)
+
+# Recalculate derived columns for monthly_summary
+monthly_summary['Total_PV_Energy_GWh'] = round(monthly_summary['Solar_production_MW']/1000, 1)
+monthly_summary['Value_per_MWp_DC_EUR'] = round(monthly_summary['Solar_value'] / monthly_summary['installed_capacity_MW'], 1)
+monthly_summary['Avg_DA_Price'] = round(monthly_summary['DA_price'], 1)
+
+# Recalculate PV weighted price for each month
+monthly_summary['PV_Weighted_Price'] = monthly_summary.apply(
+    lambda row: (df_combined[df_combined['month'] == row['month']]['Solar_production_MW'] * 
+                 df_combined[df_combined['month'] == row['month']]['DA_price']).sum() / 
+                df_combined[df_combined['month'] == row['month']]['Solar_production_MW'].sum() 
+                if df_combined[df_combined['month'] == row['month']]['Solar_production_MW'].sum() > 0 else float('nan'), axis=1
+)
+
+monthly_summary['profile_factor'] = round((monthly_summary['PV_Weighted_Price'] / monthly_summary['Avg_DA_Price'])*100, 1)
+monthly_summary['Installed_Capacity_GWp_DC'] = round(monthly_summary['installed_capacity_MW'] / 1000, 2)
+monthly_summary = monthly_summary[['month', 'Total_PV_Energy_GWh', 'Value_per_MWp_DC_EUR', 'Avg_DA_Price', 'PV_Weighted_Price', 'profile_factor', 'Installed_Capacity_GWp_DC']]
+
+print("\nMonthly Summary (Complete months only):")
+# Round first 3 columns to 1 digits
+monthly_summary_rounded = monthly_summary.copy()
+monthly_summary_rounded.loc[:, monthly_summary_rounded.columns[1:4]] = monthly_summary_rounded.iloc[:, 1:4].round(1)
+monthly_summary_df = pd.DataFrame(monthly_summary_rounded)
+print(monthly_summary_df)
 
 # Calculate yearly totals
 monthly['year'] = monthly['month_date'].dt.year
@@ -400,7 +407,7 @@ fig.update_xaxes(title_text='', row=1, col=1)
 fig.add_trace(
     go.Table(
         header=dict(
-            values=['Year', 'PV Energy produced (GWh/y)', 'Installed PV Capacity in NL (GWp) July 1st', 'MWh yield / MWp installed', 'Annual Market value (EUR/MWp/y)', 'Day-Ahead linear avg price (EUR/MWh)', 'PV-profile weighted price (EUR/MWh)', 'Profile Factor of PV (%)'],
+            values=['Year', 'PV Energy produced (GWh/y)', 'Installed PV Capacity in NL (GWp) Average', 'MWh yield / MWp installed', 'Annual Market value (EUR/MWp/y)', 'Day-Ahead linear avg price (EUR/MWh)', 'PV-profile weighted price (EUR/MWh)', 'Profile Factor of PV (%)'],
             font=dict(size=10),
             align='left'
         ),
@@ -572,7 +579,7 @@ monthly_summary_rounded_reversed = monthly_summary_rounded.sort_values('month', 
 
 table_fig = go.Figure(data=[go.Table(
     header=dict(
-        values=['Month', 'PV Energy produced (GWh)', 'Installed Capacity (GWp) July 1st', 'Market value (EUR/MWp/year)', 'Day-Ahead linear average price (EUR/MWh)', 'PV-profile Weighted price (EUR/MWh)', 'Profile Factor of PV (%)'],
+        values=['Month', 'PV Energy produced (GWh)', 'Installed Capacity (GWp) Average', 'Market value (EUR/MWp/year)', 'Day-Ahead linear average price (EUR/MWh)', 'PV-profile Weighted price (EUR/MWh)', 'Profile Factor of PV (%)'],
         font=dict(size=10),
         align='left'
     ),
