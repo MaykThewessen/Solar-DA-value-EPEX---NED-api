@@ -47,6 +47,14 @@ df_combined = pd.merge(df_prices, df_wind, on='time', how='left')
 for col in df_combined.select_dtypes(include=['object']).columns:
     df_combined[col] = df_combined[col].astype(str).str.strip()
 
+# Filter data to only include complete months up to and including September 2025
+# Since today is October 6, 2025, we only want complete months
+last_complete_month = pd.Timestamp('2025-09-30 23:59:59', tz='Europe/Amsterdam')
+df_combined = df_combined[df_combined['time'] <= last_complete_month]
+
+print(f"Data filtered to include only complete months up to September 2025")
+print(f"Date range: {df_combined['time'].min()} to {df_combined['time'].max()}")
+
 #df_combined = df_combined.fillna(0)
 #df_combined = df_combined.set_index('time').interpolate(method='time').reset_index()
 
@@ -126,7 +134,7 @@ monthly_summary = (
     }).reset_index()
 )
 
-# Calculate derived columns
+# Calculate derived columns in the correct order to match expected format
 monthly_summary['Total_Wind_Energy_GWh'] = round(monthly_summary['Wind_production_MW']/1000, 1)
 monthly_summary['Value_per_MW_AC_EUR'] = round(monthly_summary['Wind_value'] / monthly_summary['installed_capacity_MW'], 1)
 monthly_summary['Avg_DA_Price'] = monthly_summary['DA_price']
@@ -141,6 +149,11 @@ monthly_summary['Wind_Weighted_Price'] = monthly_summary.apply(
 
 monthly_summary['profile_factor'] = round((monthly_summary['Wind_Weighted_Price'] / monthly_summary['Avg_DA_Price'])*100, 1)
 monthly_summary['Installed_Capacity_MW_AC'] = round(monthly_summary['installed_capacity_MW'], 0)
+
+# Reorder columns to match expected format
+monthly_summary = monthly_summary[['month', 'Wind_production_MW', 'Wind_value', 'installed_capacity_MW', 
+                                   'DA_price', 'Total_Wind_Energy_GWh', 'Value_per_MW_AC_EUR', 
+                                   'Avg_DA_Price', 'Wind_Weighted_Price', 'profile_factor', 'Installed_Capacity_MW_AC']]
 
 print("\nMonthly Summary:")
 # Round first 3 columns to 0 digits
@@ -300,7 +313,7 @@ fig.add_trace(
         ),
         cells=dict(
             values=[
-                yearly_summary_for_table['year'].astype(str)[::-1],
+                [str(year) + (' (Jan-Sep)' if year == 2025 else '') for year in yearly_summary_for_table['year'][::-1]],
                 [format_number(x) for x in yearly_summary_for_table['Yearly_Wind_Energy_GWh'][::-1]],
                 [format_mwp(x) for x in yearly_summary_for_table['Yearly_Installed_Capacity_MW_AC'][::-1]],
                 [format_number(x) for x in yearly_summary_for_table['Yearly_MWh_per_MW'][::-1]],
@@ -546,19 +559,19 @@ monthly_summary_rounded_reversed = monthly_summary_rounded.sort_values('month', 
 
 table_fig = go.Figure(data=[go.Table(
     header=dict(
-        values=['Month', 'Wind Energy produced (GWh)', 'Installed Capacity (MW) month-avg', 'Market value (EUR/MW/year)', 'Day-Ahead linear average price (EUR/MWh)', 'Wind-profile Weighted price (EUR/MWh)', 'Profile Factor of Wind (%)'],
+        values=['Month', 'Wind Energy produced (GWh/month)', 'Wind generation capacity NL (MW AC)', 'Market value Wind (EUR/MW/year)', 'Day-Ahead average price (EUR/MWh)', 'Wind-profile weighted price (EUR/MWh)', 'Wind Capture Rate NL(profile factor %)'],
         font=dict(size=10),
         align='left'
     ),
             cells=dict(
             values=[
                 monthly_summary_rounded_reversed['month'].astype(str),
-                [format_number(x) for x in monthly_summary_rounded_reversed.iloc[:, 1]],
-                [format_mwp(x) for x in monthly_summary_rounded_reversed.iloc[:, 6]],  # Installed Capacity column
-                [format_number(x) for x in monthly_summary_rounded_reversed.iloc[:, 2]],
-                [format_number(x) for x in monthly_summary_rounded_reversed.iloc[:, 3]],
-                [format_number(x) for x in monthly_summary_rounded_reversed.iloc[:, 4]],
-                [format_percentage(x) for x in monthly_summary_rounded_reversed.iloc[:, 5]]
+                [format_number(x) for x in monthly_summary_rounded_reversed.iloc[:, 5]],  # Total_Wind_Energy_GWh
+                [format_mwp(x) for x in monthly_summary_rounded_reversed.iloc[:, 10]],   # Installed_Capacity_MW_AC
+                [format_number(x) for x in monthly_summary_rounded_reversed.iloc[:, 6]],  # Value_per_MW_AC_EUR
+                [format_number(x) for x in monthly_summary_rounded_reversed.iloc[:, 7]],  # Avg_DA_Price
+                [format_number(x) for x in monthly_summary_rounded_reversed.iloc[:, 8]],  # Wind_Weighted_Price
+                [format_percentage(x) for x in monthly_summary_rounded_reversed.iloc[:, 9]]  # profile_factor
             ],
         font=dict(size=9),
         align='left',
@@ -567,7 +580,7 @@ table_fig = go.Figure(data=[go.Table(
 )])
 
 table_fig.update_layout(
-    title_text='Monthly Summary Table (Analysis on Wind value (NL), EPEX spot prices + Wind production of NED.nl)',
+    title_text='Monthly Summary Table (Analysis on Wind value (NL), EPEX spot prices + Wind production of NED.nl) - Data up to September 2025',
     margin=dict(l=0, r=0, t=50, b=0)
 )
 

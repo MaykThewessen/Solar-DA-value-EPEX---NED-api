@@ -30,6 +30,12 @@ for f in price_files:
     price_dfs.append(df)
 df_prices = pd.concat(price_dfs, ignore_index=True)
 
+# Filter out future dates (data should not extend beyond current date)
+from datetime import datetime
+current_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+current_date_tz = pd.Timestamp(current_date, tz='Europe/Amsterdam')
+df_prices = df_prices[df_prices['time'] <= current_date_tz]
+
 # Load and concatenate all PV files
 pv_dfs = []
 for f in pv_files:
@@ -106,8 +112,8 @@ print(df_combined)
 
 
 # summarize per month
-# Convert to Period for monthly grouping
-df_combined['month'] = df_combined['time'].dt.to_period('M')
+# Convert to Period for monthly grouping (first remove timezone to avoid warning)
+df_combined['month'] = df_combined['time'].dt.tz_localize(None).dt.to_period('M')
 
 
 # Plot the combined dataframe using plotly
@@ -119,8 +125,8 @@ import plotly.colors  # type: ignore
 # 1. PV power and Day-ahead price (hourly)
 
 # 2. Monthly PV yield (sum), PV value (sum), and PV_power_weighted_DA_price (monthly avg)
-# Convert to Period and then to timestamp for plotting
-df_combined['month_date'] = df_combined['time'].dt.to_period('M').dt.to_timestamp()
+# Convert to Period and then to timestamp for plotting (first remove timezone to avoid warning)
+df_combined['month_date'] = df_combined['time'].dt.tz_localize(None).dt.to_period('M').dt.to_timestamp()
 
 monthly = (
     df_combined.groupby('month_date').agg({
@@ -579,7 +585,7 @@ monthly_summary_rounded_reversed = monthly_summary_rounded.sort_values('month', 
 
 table_fig = go.Figure(data=[go.Table(
     header=dict(
-        values=['Month', 'PV Energy produced (GWh)', 'Installed Capacity (GWp) Average', 'Market value (EUR/MWp/year)', 'Day-Ahead linear average price (EUR/MWh)', 'PV-profile Weighted price (EUR/MWh)', 'Profile Factor of PV (%)'],
+        values=['Month', 'PV Energy produced (GWh/month)', 'Solar PV capacity NL (GWp)', 'Market value PV (EUR/MWp/year)', 'Day-Ahead average price (EUR/MWh)', 'PV-profile weighted price (EUR/MWh)', 'PV Capture Rate NL (profile factor %)'],
         font=dict(size=10),
         align='left'
     ),

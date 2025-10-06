@@ -27,6 +27,12 @@ for f in price_files:
     price_dfs.append(df)
 df_prices = pd.concat(price_dfs, ignore_index=True)
 
+# Filter out future dates (data should not extend beyond current date)
+from datetime import datetime
+current_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+current_date_tz = pd.Timestamp(current_date, tz='Europe/Amsterdam')
+df_prices = df_prices[df_prices['time'] <= current_date_tz]
+
 # Load and concatenate all PV files
 pv_dfs = []
 for f in pv_files:
