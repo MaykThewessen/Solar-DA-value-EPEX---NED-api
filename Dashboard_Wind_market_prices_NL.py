@@ -8,8 +8,8 @@ os.system('clear')
 
 # --- Load all monthly DA_prices and Wind data files ---
 # Find all DA_prices and Wind files
-price_files = sorted(glob.glob('data/DA_prices_20*.csv'))
-wind_files = sorted(glob.glob('data/data_export_NED_Wind_20*.csv'))
+price_files = sorted(glob.glob('data/DA_prices/DA_prices_20*.csv'))
+wind_files  = sorted(glob.glob('data/NED_Wind/data_NED_Wind_20*.csv'))
 
 # Exclude combined file from price_files
 price_files = [f for f in price_files if 'combined' not in f]
@@ -343,7 +343,7 @@ distinct_colors = [
     '#9467bd',  # Purple
     '#8c564b',  # Brown
     '#e377c2',  # Pink
-    '#7f7f7f',  # Grey
+    '#C71585',  # Medium Violet Red
     '#bcbd22',  # Olive
     '#17becf',  # Cyan
     '#ff9896',  # Light red

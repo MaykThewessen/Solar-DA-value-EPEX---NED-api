@@ -12,7 +12,7 @@ NED_API_KEY = os.getenv("NED_API_KEY")
 
 start_date  = date(2024, 5, 1)
 end_date    = date(2024, 5, 31)
-daysstep    = 5                 # De API kan om een of andere reden maar 144 datapunten per keer exporteren, max 6 dagen in uurwaardes, of 1 dag in kwartier of 10 minuten waardes.
+daysstep    = 6                 # De API kan om een of andere reden maar 144 datapunten per keer exporteren, max 6 dagen in uurwaardes, of 1 dag in kwartier of 10 minuten waardes.
 
 exportname = 'data_export_NED_CO2_' + start_date.strftime("%Y%m%d") + '_to_' + end_date.strftime("%Y%m%d") + '_15min.xlsx'
 

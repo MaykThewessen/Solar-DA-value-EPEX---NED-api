@@ -12,8 +12,9 @@ os.system('clear')
 
 # --- Load all monthly DA_prices and PV data files ---
 # Find all DA_prices and PV files
-price_files = sorted(glob.glob('data/DA_prices_20*.csv'))
-pv_files = sorted(glob.glob('data/data_export_NED_PV_20*.csv'))
+price_files = sorted(glob.glob('data/DA_prices/DA_prices_20*.csv'))
+pv_files    = sorted(glob.glob('data/NED_PV/data_NED_PV_20*.csv'))
+
 
 # Exclude combined file from price_files
 price_files = [f for f in price_files if 'combined' not in f]
@@ -287,7 +288,7 @@ hourly = hourly[['time', 'Hourly_PV_Power_GW', 'Hourly_Installed_Capacity_GW']]
 years_list = sorted(monthly['year'].unique())
 num_years = len(years_list)
 
-# Define a palette of distinct colors that are easy to differentiate
+# Define a palette of distinct colors that are easy to differentiate (for older years)
 distinct_colors = [
     '#1f77b4',  # Blue
     '#ff7f0e',  # Orange
@@ -306,13 +307,26 @@ distinct_colors = [
     '#c5b0d5',  # Light purple
 ]
 
+# Define distinct but muted colors for the most recent year(s)
+bright_colors_for_recent_years = [
+    '#DC143C',  # Crimson red - for most recent year (opvallend maar niet te fel)
+    '#FF8C00',  # Dark orange - for second most recent (warm en opvallend)
+]
+
 color_scheme = []
 for i, year in enumerate(years_list):
-    if i < len(distinct_colors):
-        color_scheme.append(distinct_colors[i])
+    # Check if this is one of the last 2 years
+    if i >= num_years - 2:
+        # Use bright colors for the last 2 years
+        recent_year_index = i - (num_years - 2)
+        color_scheme.append(bright_colors_for_recent_years[recent_year_index])
     else:
-        # If we have more years than colors, cycle through the palette
-        color_scheme.append(distinct_colors[i % len(distinct_colors)])
+        # Use regular colors for older years
+        if i < len(distinct_colors):
+            color_scheme.append(distinct_colors[i])
+        else:
+            # If we have more years than colors, cycle through the palette
+            color_scheme.append(distinct_colors[i % len(distinct_colors)])
 
 # Create year to color mapping
 year_to_color = dict(zip(years_list, color_scheme))

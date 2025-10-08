@@ -37,7 +37,7 @@ def get_da_prices_chunked(client, country_code, start, end):
 
 #%% Retrieve and save/load data for each month from Jan 2024 to today
 
-data_dir = 'data/'
+data_dir = 'data/DA_prices'
 if not os.path.exists(data_dir):
     os.makedirs(data_dir)
 
