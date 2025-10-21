@@ -148,3 +148,15 @@ while current <= end_date:
 # Only print df1 if it exists and has data
 if 'df1' in locals() and not df1.empty:
     print(df1)
+
+
+
+#%% # Simple plot of the data
+import matplotlib.pyplot as plt
+plt.figure(figsize=(12,4))
+ax = df1['Solar_production_MW'].plot(kind='line', title='Solar production MW', ylabel='MW')
+ax.set_xlabel('time')
+ax.grid(True, which='both', linestyle='--', linewidth=0.5, alpha=0.7)
+plt.tight_layout()
+plt.show()
+

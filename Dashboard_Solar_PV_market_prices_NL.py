@@ -75,41 +75,97 @@ from datetime import datetime
 
 # Known data points for installed capacity (DC) at year-end
 capacity_points = [
-    (pd.Timestamp('2018-12-31', tz='Europe/Amsterdam'), 4609), # MWp DC https://www.cbs.nl/nl-nl/longread/rapportages/2024/hernieuwbare-energie-in-nederland-2023/5-zonne-energie
-    (pd.Timestamp('2019-12-31', tz='Europe/Amsterdam'), 7226), # MWp DC https://opendata.cbs.nl/#/CBS/nl/dataset/85005NED/table
+    (pd.Timestamp('2017-12-31', tz='Europe/Amsterdam'), 2911),
+    (pd.Timestamp('2018-12-31', tz='Europe/Amsterdam'), 4610), # MWp DC https://www.cbs.nl/nl-nl/longread/rapportages/2024/hernieuwbare-energie-in-nederland-2023/5-zonne-energie
+    (pd.Timestamp('2019-12-31', tz='Europe/Amsterdam'), 7225), # MWp DC https://opendata.cbs.nl/#/CBS/nl/dataset/85005NED/table
     (pd.Timestamp('2020-12-31', tz='Europe/Amsterdam'), 11108),
     (pd.Timestamp('2021-12-31', tz='Europe/Amsterdam'), 14822),
     (pd.Timestamp('2022-12-31', tz='Europe/Amsterdam'), 19536),
     (pd.Timestamp('2023-12-31', tz='Europe/Amsterdam'), 24302),  # MWp DC
-    (pd.Timestamp('2024-12-31', tz='Europe/Amsterdam'), 28620),  # MWp DC
-    (pd.Timestamp('2025-12-31', tz='Europe/Amsterdam'), 28620 + (80*12)/0.60),  # MWp DC # lower installed PV estimate update by https://x.com/BM_Visser/status/1954798688049697116
-    (pd.Timestamp('2026-12-31', tz='Europe/Amsterdam'), 28620 + 1600 + 1440),  # MWp DC
+    (pd.Timestamp('2024-12-31', tz='Europe/Amsterdam'), 28621),  # MWp DC
+    (pd.Timestamp('2025-12-31', tz='Europe/Amsterdam'), 28621 + (80*12)/0.60),  # MWp DC # lower installed PV estimate update by https://x.com/BM_Visser/status/1954798688049697116
+    (pd.Timestamp('2026-12-31', tz='Europe/Amsterdam'), 28621 + 1600 + 1440),  # MWp DC
 ]
+
+
+
+print(capacity_points)
 
 
 # Prepare arrays for fitting
 dates = np.array([(dt - capacity_points[0][0]).days for dt, _ in capacity_points])
 capacities = np.array([cap for _, cap in capacity_points])
 
-# Fit a linear model (polyfit degree 1)
-fit_coeffs = np.polyfit(dates, capacities, 1)
+df_capacity = pd.DataFrame({
+    'date': [dt for dt, _ in capacity_points],
+    'capacity_MW': [cap for _, cap in capacity_points]
+})
 
-def fit_installed_capacity(date):
+
+
+# Piece-wise linear interpolation for installed capacity
+
+# Prepare X (date as ordinal days) and Y (capacity)
+capacity_dates_ord = np.array([(dt - capacity_points[0][0]).days for dt, _ in capacity_points])
+capacity_values = np.array([cap for _, cap in capacity_points])
+
+def interpolate_installed_capacity(date):
     # Ensure date is a pandas Timestamp
     if not isinstance(date, pd.Timestamp):
         date = pd.Timestamp(date)
-    # Convert date to days since first anchor (both dates should be in same timezone)
+    # Convert date to ordinal days relative to first anchor
     days_since = (date - capacity_points[0][0]).days
-    # Linear fit: capacity = m * days + b
-    capacity = fit_coeffs[0] * days_since + fit_coeffs[1]
-    return round(capacity, 0)
+
+    # If before first anchor, return first capacity (flat extrapolation)
+    if days_since <= capacity_dates_ord[0]:
+        return capacity_values[0]
+
+    # If after last anchor, return last capacity (flat extrapolation)
+    if days_since >= capacity_dates_ord[-1]:
+        return capacity_values[-1]
+
+    # Find the segment for interpolation
+    idx = np.searchsorted(capacity_dates_ord, days_since) - 1
+    # Ensure idx is within valid bounds
+    idx = max(0, min(idx, len(capacity_dates_ord) - 2))
+
+    x0, x1 = capacity_dates_ord[idx], capacity_dates_ord[idx+1]
+    y0, y1 = capacity_values[idx], capacity_values[idx+1]
+
+    if x1 == x0:
+        return y0  # avoid division by zero, degenerate case
+
+    # Linear interpolation
+    interp_value = y0 + (y1 - y0) * (days_since - x0) / (x1 - x0)
+    return round(interp_value, 0)
 
 # Add the new column to df_combined
-# Time column is already in correct timezone format
-df_combined['installed_capacity_MW'] = df_combined['time'].apply(fit_installed_capacity)
-
-
+df_combined['installed_capacity_MW'] = df_combined['time'].apply(interpolate_installed_capacity)
 print(df_combined)
+
+
+
+import matplotlib.pyplot as plt
+# Plot installed capacity in df_combined (time vs installed_capacity_MW)
+plt.figure(figsize=(10, 5))
+plt.plot(df_combined['time'].dt.tz_localize(None), df_combined['installed_capacity_MW'], label='Fitted Installed Capacity (MW)', color='tab:blue')
+
+# Plot the original capacity_points as scatter
+capacity_dates = [dt for dt, cap in capacity_points]
+capacity_values = [cap for dt, cap in capacity_points]
+plt.scatter([d.tz_localize(None) for d in capacity_dates], capacity_values, color='tab:red', label='Known Data Points', zorder=5)
+plt.title('Installed Capacity: Fitted vs Known Data Points')
+plt.xlabel('Date')
+plt.ylabel('Installed Capacity (MW)')
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.savefig('installed_capacity_plot.pdf', bbox_inches='tight')
+plt.close()
+
+
+
+
 
 
 # summarize per month
@@ -338,7 +394,7 @@ yearly_summary_for_table['Yearly_PV_Energy_GWh'] = yearly_summary_for_table['Yea
 # Calculate July 1st installed capacity for each year
 def get_july_1st_capacity(year):
     july_1st = pd.Timestamp(f'{year}-07-01', tz='Europe/Amsterdam')
-    return fit_installed_capacity(july_1st)
+    return interpolate_installed_capacity(july_1st)
 
 yearly_summary_for_table['Yearly_Installed_Capacity_GWp_DC'] = yearly_summary_for_table['year'].apply(get_july_1st_capacity) / 1000
 # Calculate MWh/MWp installed produced

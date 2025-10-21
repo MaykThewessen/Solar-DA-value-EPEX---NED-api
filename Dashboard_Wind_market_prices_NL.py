@@ -78,6 +78,10 @@ capacity_points = [
     (pd.Timestamp('2026-12-31', tz='Europe/Amsterdam'), 6580 + 1600 + 1440),  # MW AC
 ]
 
+print(capacity_points)
+
+
+
 def fit_installed_capacity_piecewise(date):
     # Ensure date is a pandas Timestamp with tz
     if not isinstance(date, pd.Timestamp):
