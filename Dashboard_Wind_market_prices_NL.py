@@ -67,15 +67,16 @@ from datetime import datetime
 
 # Known data points for installed capacity (AC) at year-end
 capacity_points = [
-    (pd.Timestamp('2019-01-01', tz='Europe/Amsterdam'), 3100), # MW AC
-    (pd.Timestamp('2019-12-31', tz='Europe/Amsterdam'), 3190), # MW AC
-    (pd.Timestamp('2020-12-31', tz='Europe/Amsterdam'), 3800),
-    (pd.Timestamp('2021-12-31', tz='Europe/Amsterdam'), 4800),
-    (pd.Timestamp('2022-12-31', tz='Europe/Amsterdam'), 5600),
-    (pd.Timestamp('2023-12-31', tz='Europe/Amsterdam'), 6200),  # MW AC
-    (pd.Timestamp('2024-12-31', tz='Europe/Amsterdam'), 6580),  # MW AC
-    (pd.Timestamp('2025-12-31', tz='Europe/Amsterdam'), 6580 + (80*12)/0.60),  # MW AC # lower installed Wind estimate update
-    (pd.Timestamp('2026-12-31', tz='Europe/Amsterdam'), 6580 + 1600 + 1440),  # MW AC
+    (pd.Timestamp('2017-12-31', tz='Europe/Amsterdam'), 3245), # MW AC Onshore Wind only
+    (pd.Timestamp('2018-12-31', tz='Europe/Amsterdam'), 3436), # MW AC
+    (pd.Timestamp('2019-12-31', tz='Europe/Amsterdam'), 3527), # MW AC
+    (pd.Timestamp('2020-12-31', tz='Europe/Amsterdam'), 4188),
+    (pd.Timestamp('2021-12-31', tz='Europe/Amsterdam'), 5186),
+    (pd.Timestamp('2022-12-31', tz='Europe/Amsterdam'), 6131),
+    (pd.Timestamp('2023-12-31', tz='Europe/Amsterdam'), 6757),  # MW AC
+    (pd.Timestamp('2024-12-31', tz='Europe/Amsterdam'), 6965),  # MW AC
+    (pd.Timestamp('2025-12-31', tz='Europe/Amsterdam'), 6965 + 100),  # MW AC # lower installed Wind estimate update
+    (pd.Timestamp('2026-12-31', tz='Europe/Amsterdam'), 6965 + 100 + 50),  # MW AC
 ]
 
 print(capacity_points)
@@ -121,8 +122,43 @@ if df_combined['time'].dt.tz is None:
     df_combined['time'] = df_combined['time'].dt.tz_localize('Europe/Amsterdam')
 df_combined['installed_capacity_MW'] = df_combined['time'].apply(fit_installed_capacity_piecewise)
 
-
 print(df_combined)
+
+import matplotlib.pyplot as plt
+
+# Prepare data for plotting
+plt.figure(figsize=(10, 5))
+
+# Plot fitted installed capacity (MW) from df_combined over time
+plt.plot(
+    df_combined['time'].dt.tz_localize(None),
+    df_combined['installed_capacity_MW'],
+    label='Fitted Installed Capacity (MW)', color='tab:blue'
+)
+
+# Plot the original capacity_points as red scatter points
+cap_dates = [dt.tz_localize(None) for dt, cap in capacity_points]
+cap_values = [cap for dt, cap in capacity_points]
+
+plt.scatter(
+    cap_dates,
+    cap_values,
+    color='tab:red',
+    label='Known Data Points',
+    zorder=5
+)
+
+plt.title('Installed Wind Capacity: Fitted vs Known Data Points')
+plt.xlabel('Date')
+plt.ylabel('Installed Capacity (MW)')
+plt.ylim(bottom=0)
+plt.legend()
+plt.grid(True)
+plt.tight_layout()
+plt.savefig('wind_installed_capacity_vs_known_points.pdf', bbox_inches='tight')
+plt.close()
+
+
 
 
 # summarize per month
@@ -135,21 +171,21 @@ monthly_summary = (
         'Wind_value': 'sum',
         'installed_capacity_MW': 'mean',
         'DA_price': 'mean'
-    }).reset_index()
+    }).reset_index().round(1)
 )
 
 # Calculate derived columns in the correct order to match expected format
-monthly_summary['Total_Wind_Energy_GWh'] = round(monthly_summary['Wind_production_MW']/1000, 1)
-monthly_summary['Value_per_MW_AC_EUR'] = round(monthly_summary['Wind_value'] / monthly_summary['installed_capacity_MW'], 1)
-monthly_summary['Avg_DA_Price'] = monthly_summary['DA_price']
+monthly_summary['Total_Wind_Energy_GWh'] = round(monthly_summary['Wind_production_MW']/1000, 0)
+monthly_summary['Value_per_MW_AC_EUR'] = round(monthly_summary['Wind_value'] / monthly_summary['installed_capacity_MW'], 0)
+monthly_summary['Avg_DA_Price'] = round(monthly_summary['DA_price'], 1)
 
 # Calculate Wind weighted price for each month
-monthly_summary['Wind_Weighted_Price'] = monthly_summary.apply(
+monthly_summary['Wind_Weighted_Price'] = round(monthly_summary.apply(
     lambda row: (df_combined[df_combined['month'] == row['month']]['Wind_production_MW'] * 
                  df_combined[df_combined['month'] == row['month']]['DA_price']).sum() / 
                 df_combined[df_combined['month'] == row['month']]['Wind_production_MW'].sum() 
                 if df_combined[df_combined['month'] == row['month']]['Wind_production_MW'].sum() > 0 else float('nan'), axis=1
-)
+), 1)
 
 monthly_summary['profile_factor'] = round((monthly_summary['Wind_Weighted_Price'] / monthly_summary['Avg_DA_Price'])*100, 1)
 monthly_summary['Installed_Capacity_MW_AC'] = round(monthly_summary['installed_capacity_MW'], 0)
@@ -193,7 +229,8 @@ monthly = (
 monthly['Monthly_Wind_Energy_MWh'] = round(monthly['Wind_production_MW'], 1)
 monthly['Monthly_Value_per_MW_AC_EUR'] = round(monthly['Wind_value'] / monthly['installed_capacity_MW'], 1)
 monthly['Monthly_Installed_Capacity_MW'] = monthly['installed_capacity_MW']
-monthly['Monthly_Avg_DA_Price'] = monthly['DA_price']
+monthly['Monthly_Avg_DA_Price'] = round(monthly['DA_price'], 1)
+
 
 # Calculate Wind weighted price for each month
 monthly['Monthly_Wind_Power_Weighted_DA_Price'] = monthly.apply(
@@ -398,7 +435,7 @@ fig.update_xaxes(title_text='', row=1, col=1, tickmode='array', tickvals=list(ra
 
 # Second subplot: Installed Wind Capacity
 # Create date range for the fitted curve
-start_date = pd.Timestamp('2019-01-01', tz='Europe/Amsterdam')
+start_date = pd.Timestamp('2018-01-01', tz='Europe/Amsterdam')
 end_date = pd.Timestamp('2025-12-31', tz='Europe/Amsterdam')
 date_range = pd.date_range(start=start_date, end=end_date, freq='D')
 
