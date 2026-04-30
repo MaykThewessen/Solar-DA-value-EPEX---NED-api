@@ -1,39 +1,24 @@
 import pandas as pd  # type: ignore
 import numpy as np  # type: ignore
 import os
-import glob
 import warnings
+from data_loader import load_da_prices, load_ned_wind
 os.system('clear')
 
 
-# --- Load all monthly DA_prices and Wind data files ---
-# Find all DA_prices and Wind files (recursive: survives folder reorganization under data/)
-price_pattern = 'data/**/DA_prices_*.csv'
-wind_pattern = 'data/**/data_NED_Wind_*.csv'
-price_files = sorted(glob.glob(price_pattern, recursive=True))
-wind_files  = sorted(glob.glob(wind_pattern, recursive=True))
+df_prices = load_da_prices(clip_future=False)
 
-# Exclude combined file from price_files
-price_files = [f for f in price_files if 'combined' not in f]
+# EPEX day-ahead switched from 1h to 15-min resolution on 2025-10-01.
+# NED wind data stays hourly. Aggregate prices to hourly mean here so the
+# merge is 1:1 and downstream value calcs see one price per hour.
+# Floor in UTC to avoid DST-ambiguity on autumn fall-back (02:00 occurs twice).
+hour_floor = df_prices['time'].dt.tz_convert('UTC').dt.floor('h').dt.tz_convert('Europe/Amsterdam')
+df_prices = (
+    df_prices.assign(time=hour_floor)
+             .groupby('time', as_index=False)['DA_price'].mean()
+)
 
-assert price_files, f"No DA_prices files matched {price_pattern}"
-assert wind_files, f"No NED Wind files matched {wind_pattern}"
-
-# Load and concatenate all price files
-price_dfs = []
-for f in price_files:
-    df = pd.read_csv(f)
-    df['time'] = pd.to_datetime(df['time'], utc=True).dt.tz_convert('Europe/Amsterdam')
-    price_dfs.append(df)
-df_prices = pd.concat(price_dfs, ignore_index=True)
-
-# Load and concatenate all Wind files
-wind_dfs = []
-for f in wind_files:
-    df = pd.read_csv(f)
-    df['time'] = pd.to_datetime(df['time'], utc=True).dt.tz_convert('Europe/Amsterdam')
-    wind_dfs.append(df)
-df_wind = pd.concat(wind_dfs, ignore_index=True)
+df_wind = load_ned_wind()
 
 #print(df_prices)
 #print(df_wind)
@@ -42,12 +27,12 @@ df_wind = pd.concat(wind_dfs, ignore_index=True)
 # Merge the two dataframes on the 'time' column
 df_combined = pd.merge(df_prices, df_wind, on='time', how='left')
 
-# Filter data to only include complete months up to and including September 2025
-# Since today is October 6, 2025, we only want complete months
-last_complete_month = pd.Timestamp('2025-09-30 23:59:59', tz='Europe/Amsterdam')
+# Filter data to only include complete months (last complete = last day of previous month)
+from datetime import datetime
+current_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+last_complete_month = pd.Timestamp(current_date, tz='Europe/Amsterdam').replace(day=1) - pd.Timedelta(seconds=1)
 df_combined = df_combined[df_combined['time'] <= last_complete_month]
 
-print(f"Data filtered to include only complete months up to September 2025")
 print(f"Date range: {df_combined['time'].min()} to {df_combined['time'].max()}")
 
 #df_combined = df_combined.fillna(0)

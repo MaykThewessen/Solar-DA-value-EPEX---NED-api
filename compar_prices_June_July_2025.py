@@ -1,8 +1,8 @@
 import pandas as pd  # type: ignore
 import numpy as np  # type: ignore
 import os
-import glob
 import warnings
+from data_loader import load_da_prices
 os.system('clear')
 
 # Compare Day-Ahead Prices of July 2025 vs June 2025
@@ -11,35 +11,12 @@ os.system('clear')
 # Hypothesis: is the root cause of higher PV weighted prices due to worse weather conditions in July 2025?
 # Or is it due to more curtailment/gateway software installed compared to last year?
 
+df_prices = load_da_prices(clip_future=False)
+df_june = df_prices[(df_prices['time'].dt.year == 2025) & (df_prices['time'].dt.month == 6)].copy()
+df_july = df_prices[(df_prices['time'].dt.year == 2025) & (df_prices['time'].dt.month == 7)].copy()
 
-
-# --- Load all monthly DA_prices and PV data files ---
-# Find all DA_prices and PV files (recursive: survives folder reorganization under data/)
-price_pattern = 'data/**/DA_prices_*.csv'
-price_files = sorted(glob.glob(price_pattern, recursive=True))
-
-assert price_files, f"No DA_prices files matched {price_pattern}"
-
-
-# Load July 2025 and June 2025 price files
-june_file = None
-july_file = None
-for f in price_files:
-    if '2025_06' in f or '202506' in f:
-        june_file = f
-    if '2025_07' in f or '202507' in f:
-        july_file = f
-
-if june_file is None or july_file is None:
-    raise FileNotFoundError("Could not find both June 2025 and July 2025 price files.")
-
-# Load data
-df_june = pd.read_csv(june_file)
-df_july = pd.read_csv(july_file)
-
-# Parse time columns
-df_june['time'] = pd.to_datetime(df_june['time'], utc=True).dt.tz_convert('Europe/Amsterdam')
-df_july['time'] = pd.to_datetime(df_july['time'], utc=True).dt.tz_convert('Europe/Amsterdam')
+assert not df_june.empty, "No June 2025 price data found"
+assert not df_july.empty, "No July 2025 price data found"
 
 # For plotting, align on hour of day if needed
 df_june['hour'] = df_june['time'].dt.hour

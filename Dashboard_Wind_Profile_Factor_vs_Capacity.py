@@ -1,47 +1,15 @@
 import pandas as pd  # type: ignore
 import numpy as np  # type: ignore
 import os
-import glob
 import warnings
+from data_loader import load_da_prices, load_ned_wind
 os.system('clear')
 
 # TODO: add a function to only export Wind power when DA prices are non-negative
 # Graph shows yearly relationship between installed Wind capacity and profile factor
 
-# --- Load all monthly DA_prices and Wind data files ---
-# Find all DA_prices and Wind files
-price_pattern = 'data/**/DA_prices_*.csv'
-wind_pattern = 'data/**/data_NED_Wind_*.csv'
-price_files = sorted(glob.glob(price_pattern, recursive=True))
-wind_files = sorted(glob.glob(wind_pattern, recursive=True))
-
-# Exclude combined file from price_files
-price_files = [f for f in price_files if 'combined' not in f]
-
-assert price_files, f"No DA_prices files matched {price_pattern}"
-assert wind_files, f"No Wind files matched {wind_pattern}"
-
-# Load and concatenate all price files
-price_dfs = []
-for f in price_files:
-    df = pd.read_csv(f)
-    df['time'] = pd.to_datetime(df['time'], utc=True).dt.tz_convert('Europe/Amsterdam')
-    price_dfs.append(df)
-df_prices = pd.concat(price_dfs, ignore_index=True)
-
-# Filter out future dates (data should not extend beyond current date)
-from datetime import datetime
-current_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-current_date_tz = pd.Timestamp(current_date, tz='Europe/Amsterdam')
-df_prices = df_prices[df_prices['time'] <= current_date_tz]
-
-# Load and concatenate all Wind files
-wind_dfs = []
-for f in wind_files:
-    df = pd.read_csv(f)
-    df['time'] = pd.to_datetime(df['time'], utc=True).dt.tz_convert('Europe/Amsterdam')
-    wind_dfs.append(df)
-df_wind = pd.concat(wind_dfs, ignore_index=True)
+df_prices = load_da_prices()
+df_wind = load_ned_wind()
 
 # Merge the two dataframes on the 'time' column
 df_combined = pd.merge(df_prices, df_wind, on='time', how='left')

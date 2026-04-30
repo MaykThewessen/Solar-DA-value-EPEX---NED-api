@@ -1,47 +1,15 @@
 import pandas as pd  # type: ignore
 import numpy as np  # type: ignore
 import os
-import glob
 import warnings
+from data_loader import load_da_prices, load_ned_pv
 os.system('clear')
 
 # TODO: add a function to only export PV power when DA prices are non-negative
 # Graph shows yearly relationship between installed PV capacity and profile factor
 
-# --- Load all monthly DA_prices and PV data files ---
-# Find all DA_prices and PV files (recursive: survives folder reorganization under data/)
-price_pattern = 'data/**/DA_prices_*.csv'
-pv_pattern = 'data/**/data_NED_PV_*.csv'
-price_files = sorted(glob.glob(price_pattern, recursive=True))
-pv_files = sorted(glob.glob(pv_pattern, recursive=True))
-
-# Exclude combined file from price_files
-price_files = [f for f in price_files if 'combined' not in f]
-
-assert price_files, f"No DA_prices files matched {price_pattern}"
-assert pv_files, f"No NED PV files matched {pv_pattern}"
-
-# Load and concatenate all price files
-price_dfs = []
-for f in price_files:
-    df = pd.read_csv(f)
-    df['time'] = pd.to_datetime(df['time'], utc=True).dt.tz_convert('Europe/Amsterdam')
-    price_dfs.append(df)
-df_prices = pd.concat(price_dfs, ignore_index=True)
-
-# Filter out future dates (data should not extend beyond current date)
-from datetime import datetime
-current_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-current_date_tz = pd.Timestamp(current_date, tz='Europe/Amsterdam')
-df_prices = df_prices[df_prices['time'] <= current_date_tz]
-
-# Load and concatenate all PV files
-pv_dfs = []
-for f in pv_files:
-    df = pd.read_csv(f)
-    df['time'] = pd.to_datetime(df['time'], utc=True).dt.tz_convert('Europe/Amsterdam')
-    pv_dfs.append(df)
-df_pv = pd.concat(pv_dfs, ignore_index=True)
+df_prices = load_da_prices()
+df_pv = load_ned_pv()
 
 # Merge the two dataframes on the 'time' column
 df_combined = pd.merge(df_prices, df_pv, on='time', how='left')

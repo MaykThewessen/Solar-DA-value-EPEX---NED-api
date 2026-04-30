@@ -1,49 +1,27 @@
 import pandas as pd  # type: ignore
 import numpy as np  # type: ignore
 import os
-import glob
 import warnings
+from data_loader import load_da_prices, load_ned_pv
 os.system('clear')
 
 
 # TODO: add a function to only export PV power when DA prices are non-negative
 # Graph shows monthly values per year with each year as a different line on the month x-axis graph
 
+df_prices = load_da_prices()
 
-# --- Load all monthly DA_prices and PV data files ---
-# Find all DA_prices and PV files (recursive: survives folder reorganization under data/)
-price_pattern = 'data/**/DA_prices_*.csv'
-pv_pattern = 'data/**/data_NED_PV_*.csv'
-price_files = sorted(glob.glob(price_pattern, recursive=True))
-pv_files    = sorted(glob.glob(pv_pattern, recursive=True))
+# EPEX day-ahead switched from 1h to 15-min resolution on 2025-10-01.
+# NED solar/wind data stays hourly. Aggregate prices to hourly mean here so
+# the merge is 1:1 and downstream value calcs see one price per hour.
+# Floor in UTC to avoid DST-ambiguity on autumn fall-back (02:00 occurs twice).
+hour_floor = df_prices['time'].dt.tz_convert('UTC').dt.floor('h').dt.tz_convert('Europe/Amsterdam')
+df_prices = (
+    df_prices.assign(time=hour_floor)
+             .groupby('time', as_index=False)['DA_price'].mean()
+)
 
-# Exclude combined file from price_files
-price_files = [f for f in price_files if 'combined' not in f]
-
-assert price_files, f"No DA_prices files matched {price_pattern}"
-assert pv_files, f"No NED PV files matched {pv_pattern}"
-
-# Load and concatenate all price files
-price_dfs = []
-for f in price_files:
-    df = pd.read_csv(f)
-    df['time'] = pd.to_datetime(df['time'], utc=True).dt.tz_convert('Europe/Amsterdam')
-    price_dfs.append(df)
-df_prices = pd.concat(price_dfs, ignore_index=True)
-
-# Filter out future dates (data should not extend beyond current date)
-from datetime import datetime
-current_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-current_date_tz = pd.Timestamp(current_date, tz='Europe/Amsterdam')
-df_prices = df_prices[df_prices['time'] <= current_date_tz]
-
-# Load and concatenate all PV files
-pv_dfs = []
-for f in pv_files:
-    df = pd.read_csv(f)
-    df['time'] = pd.to_datetime(df['time'], utc=True).dt.tz_convert('Europe/Amsterdam')
-    pv_dfs.append(df)
-df_pv = pd.concat(pv_dfs, ignore_index=True)
+df_pv = load_ned_pv()
 
 #print(df_prices)
 #print(df_pv)

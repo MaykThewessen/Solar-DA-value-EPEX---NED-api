@@ -1,38 +1,12 @@
 import pandas as pd
 import numpy as np
 import os
-import glob
+from data_loader import load_da_prices, load_ned_pv
 os.system('clear')
 
 
-# --- Load all monthly DA_prices and PV data files ---
-# Find all DA_prices and PV files (recursive: survives folder reorganization under data/)
-price_pattern = 'data/**/DA_prices_*.csv'
-pv_pattern = 'data/**/data_NED_PV_*.csv'
-price_files = sorted(glob.glob(price_pattern, recursive=True))
-pv_files = sorted(glob.glob(pv_pattern, recursive=True))
-
-# Exclude combined file from price_files
-price_files = [f for f in price_files if 'combined' not in f]
-
-assert price_files, f"No DA_prices files matched {price_pattern}"
-assert pv_files, f"No NED PV files matched {pv_pattern}"
-
-# Load and concatenate all price files
-price_dfs = []
-for f in price_files:
-    df = pd.read_csv(f)
-    df['time'] = pd.to_datetime(df['time'], utc=True).dt.tz_convert('Europe/Amsterdam')
-    price_dfs.append(df)
-df_prices = pd.concat(price_dfs, ignore_index=True)
-
-# Load and concatenate all PV files
-pv_dfs = []
-for f in pv_files:
-    df = pd.read_csv(f)
-    df['time'] = pd.to_datetime(df['time'], utc=True).dt.tz_convert('Europe/Amsterdam')
-    pv_dfs.append(df)
-df_pv = pd.concat(pv_dfs, ignore_index=True)
+df_prices = load_da_prices(clip_future=False)
+df_pv = load_ned_pv()
 
 #print(df_prices)
 #print(df_pv)
