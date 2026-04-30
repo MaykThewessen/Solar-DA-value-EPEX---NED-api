@@ -1,2 +1,3 @@
-*.html linguist-detectable=false# SCM syntax highlighting & preventing 3-way merges
+# SCM syntax highlighting & preventing 3-way merges
+*.html linguist-detectable=false
 pixi.lock merge=binary linguist-language=YAML linguist-generated=true -diff
