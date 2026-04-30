@@ -14,8 +14,11 @@ os.system('clear')
 
 
 # --- Load all monthly DA_prices and PV data files ---
-# Find all DA_prices and PV files
-price_files = sorted(glob.glob('data/DA_prices_20*.csv'))
+# Find all DA_prices and PV files (recursive: survives folder reorganization under data/)
+price_pattern = 'data/**/DA_prices_*.csv'
+price_files = sorted(glob.glob(price_pattern, recursive=True))
+
+assert price_files, f"No DA_prices files matched {price_pattern}"
 
 
 # Load July 2025 and June 2025 price files

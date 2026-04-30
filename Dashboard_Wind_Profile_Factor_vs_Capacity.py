@@ -10,19 +10,21 @@ os.system('clear')
 
 # --- Load all monthly DA_prices and Wind data files ---
 # Find all DA_prices and Wind files
-price_files = sorted(glob.glob('data/DA_prices_20*.csv'))
-wind_files = sorted(glob.glob('data/data_export_NED_Wind_20*.csv'))
+price_pattern = 'data/**/DA_prices_*.csv'
+wind_pattern = 'data/**/data_NED_Wind_*.csv'
+price_files = sorted(glob.glob(price_pattern, recursive=True))
+wind_files = sorted(glob.glob(wind_pattern, recursive=True))
 
 # Exclude combined file from price_files
 price_files = [f for f in price_files if 'combined' not in f]
+
+assert price_files, f"No DA_prices files matched {price_pattern}"
+assert wind_files, f"No Wind files matched {wind_pattern}"
 
 # Load and concatenate all price files
 price_dfs = []
 for f in price_files:
     df = pd.read_csv(f)
-    # Remove white spaces at beginning and end of all string columns
-    for col in df.select_dtypes(include=['object']).columns:
-        df[col] = df[col].astype(str).str.strip()
     df['time'] = pd.to_datetime(df['time'], utc=True).dt.tz_convert('Europe/Amsterdam')
     price_dfs.append(df)
 df_prices = pd.concat(price_dfs, ignore_index=True)
@@ -37,19 +39,12 @@ df_prices = df_prices[df_prices['time'] <= current_date_tz]
 wind_dfs = []
 for f in wind_files:
     df = pd.read_csv(f)
-    # Remove white spaces at beginning and end of all string columns
-    for col in df.select_dtypes(include=['object']).columns:
-        df[col] = df[col].astype(str).str.strip()
     df['time'] = pd.to_datetime(df['time'], utc=True).dt.tz_convert('Europe/Amsterdam')
     wind_dfs.append(df)
 df_wind = pd.concat(wind_dfs, ignore_index=True)
 
 # Merge the two dataframes on the 'time' column
 df_combined = pd.merge(df_prices, df_wind, on='time', how='left')
-
-# Remove white spaces at beginning and end of all string columns in combined dataframe
-for col in df_combined.select_dtypes(include=['object']).columns:
-    df_combined[col] = df_combined[col].astype(str).str.strip()
 
 df_combined['Wind_value'] = df_combined['Wind_production_MW'] * df_combined['DA_price']
 

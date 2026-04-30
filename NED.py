@@ -57,7 +57,7 @@ print(df1)
 
 
 df1 = df1.rename(columns={'capacity': 'Solar_production_kW'})
-df1['validfrom'] = pd.to_datetime(df1['validfrom']).dt.tz_localize('Europe/Brussels')
+df1['validfrom'] = pd.to_datetime(df1['validfrom'], utc=True)
 df1 = df1.set_index('validfrom')
 
 
@@ -72,17 +72,19 @@ print(df1.describe())
 import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 
+# Display boundary: UTC storage → Europe/Brussels for plotting and daily buckets.
+# df1 stays UTC for CSV export below.
+df_local = df1.tz_convert('Europe/Brussels')
+
 # 1. Prepare data for first subplot: Solar production in GW
-solar_gw = df1['Solar_production_kW'] / 1e6
+solar_gw = df_local['Solar_production_kW'] / 1e6
 
 # 2. Prepare data for second subplot: Daily energy sum in GWh
 
 # Detect timestep in hours from index
+timestep_hours = (df_local.index[1] - df_local.index[0]).total_seconds() / 3600
 
-timestep_hours = (df1.index[1] - df1.index[0]).total_seconds() / 3600
-
-
-energy_kwh = df1['Solar_production_kW'] * timestep_hours
+energy_kwh = df_local['Solar_production_kW'] * timestep_hours
 energy_gwh = energy_kwh.resample('D').sum() / 1e6
 
 # Month sum for subplot title (in GWh)

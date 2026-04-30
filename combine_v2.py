@@ -6,12 +6,17 @@ os.system('clear')
 
 
 # --- Load all monthly DA_prices and PV data files ---
-# Find all DA_prices and PV files
-price_files = sorted(glob.glob('data/DA_prices_20*.csv'))
-pv_files = sorted(glob.glob('data/data_export_NED_PV_20*.csv'))
+# Find all DA_prices and PV files (recursive: survives folder reorganization under data/)
+price_pattern = 'data/**/DA_prices_*.csv'
+pv_pattern = 'data/**/data_NED_PV_*.csv'
+price_files = sorted(glob.glob(price_pattern, recursive=True))
+pv_files = sorted(glob.glob(pv_pattern, recursive=True))
 
 # Exclude combined file from price_files
 price_files = [f for f in price_files if 'combined' not in f]
+
+assert price_files, f"No DA_prices files matched {price_pattern}"
+assert pv_files, f"No NED PV files matched {pv_pattern}"
 
 # Load and concatenate all price files
 price_dfs = []
