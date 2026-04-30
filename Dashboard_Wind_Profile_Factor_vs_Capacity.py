@@ -8,7 +8,7 @@ os.system('clear')
 # TODO: add a function to only export Wind power when DA prices are non-negative
 # Graph shows yearly relationship between installed Wind capacity and profile factor
 
-df_prices = load_da_prices()
+df_prices = load_da_prices(aggregate_to_hourly=True)
 df_wind = load_ned_wind()
 
 # Merge the two dataframes on the 'time' column

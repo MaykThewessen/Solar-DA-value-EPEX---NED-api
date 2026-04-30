@@ -47,6 +47,9 @@ start_month = 1
 today = date.today()
 end_year = today.year
 end_month = today.month
+# Always refetch the current month and the previous month to catch late-arriving / revised data
+prev_month_first = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
+prev_year, prev_month = prev_month_first.year, prev_month_first.month
 
 all_data = []
 
@@ -62,9 +65,9 @@ for year in range(start_year, end_year + 1):
         month_end = 12
     for month in range(month_start, month_end + 1):
         file_path = os.path.join(data_dir, f'DA_prices_{year}_{month:02d}.csv')
-        # Determine if this is the last (most recent) month
-        is_last_month = (year == end_year and month == end_month)
-        if os.path.exists(file_path) and not is_last_month:
+        is_current_month = (year == today.year and month == today.month)
+        is_recent_month = (year, month) >= (prev_year, prev_month)
+        if os.path.exists(file_path) and not is_recent_month:
             print(f"File exists, skipping: {file_path}")
             continue
         # Set start and end timestamps for the month
@@ -73,9 +76,9 @@ for year in range(start_year, end_year + 1):
             next_month = pd.Timestamp(f'{year+1}-01-01 00:00:00', tz='Europe/Brussels')
         else:
             next_month = pd.Timestamp(f'{year}-{month+1:02d}-01 00:00:00', tz='Europe/Brussels')
-        # For current month, end at today (exclusive)
-        if year == today.year and month == today.month:
-            end = pd.Timestamp(today, tz='Europe/Brussels')
+        # For current month, end at end of today (today + 1 day at 00:00) so today's prices are included
+        if is_current_month:
+            end = pd.Timestamp(today + timedelta(days=1), tz='Europe/Brussels')
         else:
             end = next_month
         DA = get_da_prices_chunked(client, country_code, start, end)

@@ -8,7 +8,7 @@ os.system('clear')
 # TODO: add a function to only export PV power when DA prices are non-negative
 # Graph shows yearly relationship between installed PV capacity and profile factor
 
-df_prices = load_da_prices(clip_future=False)
+df_prices = load_da_prices(clip_future=False, aggregate_to_hourly=True)
 df_pv = load_ned_pv()
 
 # Merge the two dataframes on the 'time' column

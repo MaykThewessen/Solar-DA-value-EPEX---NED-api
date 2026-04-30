@@ -5,7 +5,7 @@ from data_loader import load_da_prices, load_ned_pv
 os.system('clear')
 
 
-df_prices = load_da_prices(clip_future=False)
+df_prices = load_da_prices(clip_future=False, aggregate_to_hourly=True)
 df_pv = load_ned_pv()
 
 #print(df_prices)

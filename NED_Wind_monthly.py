@@ -19,13 +19,15 @@ if not os.path.exists('data'):
 
 start_date = date(2018, 1, 1)
 today = date.today()
-end_date = date(today.year, today.month, 1) - timedelta(days=1)
+end_date = today
+# Always refetch the current month and the previous month to catch late-arriving data
+prev_month_first = (today.replace(day=1) - timedelta(days=1)).replace(day=1)
 
 
 url = "https://api.ned.nl/v1/utilizations"
 df1 = pd.DataFrame(columns=['capacity', 'percentage','validfrom']) # initialise dataframe
 
- 
+
 
 current = start_date
 while current <= end_date:
@@ -38,8 +40,10 @@ while current <= end_date:
         month_end = date(current.year, current.month, last_day)
         is_current_month = False
 
+    is_recent_month = (current.year, current.month) >= (prev_month_first.year, prev_month_first.month)
+
     exportname = f"data/NED_Wind/data_NED_Wind_{current.strftime('%Y%m')}.csv"
-    if os.path.exists(exportname) and not is_current_month:
+    if os.path.exists(exportname) and not is_recent_month:
         print(f"{exportname} already exists, skipping...")
         # Move to next month
         current = (month_end + timedelta(1)).replace(day=1) if month_end.month != 12 else date(month_end.year + 1, 1, 1)

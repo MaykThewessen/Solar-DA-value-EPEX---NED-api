@@ -6,18 +6,7 @@ from data_loader import load_da_prices, load_ned_wind
 os.system('clear')
 
 
-df_prices = load_da_prices(clip_future=False)
-
-# EPEX day-ahead switched from 1h to 15-min resolution on 2025-10-01.
-# NED wind data stays hourly. Aggregate prices to hourly mean here so the
-# merge is 1:1 and downstream value calcs see one price per hour.
-# Floor in UTC to avoid DST-ambiguity on autumn fall-back (02:00 occurs twice).
-hour_floor = df_prices['time'].dt.tz_convert('UTC').dt.floor('h').dt.tz_convert('Europe/Amsterdam')
-df_prices = (
-    df_prices.assign(time=hour_floor)
-             .groupby('time', as_index=False)['DA_price'].mean()
-)
-
+df_prices = load_da_prices(clip_future=False, aggregate_to_hourly=True)
 df_wind = load_ned_wind()
 
 #print(df_prices)
@@ -302,13 +291,14 @@ def format_percentage(x):
 
 # --- Create subplots ---
 fig = make_subplots(
-    rows=6, cols=1, shared_xaxes=False, vertical_spacing=0.08,
+    rows=7, cols=1, shared_xaxes=False, vertical_spacing=0.08,
     subplot_titles=(
         'Total Wind Yield in NL',
         'Installed Wind Capacity',
         'Yield normalized per installed capacity',
         'Market Value per installed capacity',
-        'Profile Factor Wind (%)',
+        'Capture Rate Wind (%)',
+        'Wind Capture Price (€/MWh)',
         ' '
     ),
     specs=[
@@ -317,9 +307,10 @@ fig = make_subplots(
         [{"secondary_y": False}],
         [{"secondary_y": False}],
         [{"secondary_y": False}],
+        [{"secondary_y": False}],
         [{"type": "table"}]
     ],
-    row_heights=[0.22, 0.22, 0.22, 0.22, 0.22, 0.35]  # Increased heights for better readability
+    row_heights=[0.20, 0.20, 0.20, 0.20, 0.20, 0.20, 0.30]
 )
 
 
@@ -328,13 +319,13 @@ fig = make_subplots(
 fig.add_trace(
     go.Table(
         header=dict(
-            values=['Year', 'Wind Energy produced (GWh/y)', 'Installed Wind Capacity in NL (MW) mid-year', 'MWh yield / MW installed', 'Annual Market value (EUR/MW/y)', 'Day-Ahead linear avg price (EUR/MWh)', 'Wind-profile weighted price (EUR/MWh)', 'Profile Factor of Wind (%)'],
+            values=['Year', 'Wind Energy produced (GWh/y)', 'Installed Wind Capacity in NL (MW) mid-year', 'MWh yield / MW installed', 'Annual Market value (EUR/MW/y)', 'Day-Ahead linear avg price (EUR/MWh)', 'Wind Capture price (EUR/MWh)', 'Capture rate of Wind (%)'],
             font=dict(size=10),
             align='left'
         ),
         cells=dict(
             values=[
-                [str(year) + (' (Jan-Sep)' if year == 2025 else '') for year in yearly_summary_for_table['year'][::-1]],
+                [str(year) for year in yearly_summary_for_table['year'][::-1]],
                 [format_number(x) for x in yearly_summary_for_table['Yearly_Wind_Energy_GWh'][::-1]],
                 [format_mwp(x) for x in yearly_summary_for_table['Yearly_Installed_Capacity_MW_AC'][::-1]],
                 [format_number(x) for x in yearly_summary_for_table['Yearly_MWh_per_MW'][::-1]],
@@ -348,7 +339,7 @@ fig.add_trace(
             height=20
         )
     ),
-    row=6, col=1
+    row=7, col=1
 )
 
 # Create custom color scheme with distinct, distinguishable colors for each year
@@ -521,7 +512,7 @@ for year in sorted(monthly['year'].unique()):
             mode='lines+markers',
             line=dict(width=2),
             marker=dict(size=6),
-            hovertemplate='<b>Year:</b> %{fullData.name}<br><b>Month:</b> %{customdata}<br><b>Profile Factor:</b> %{y:.1f}%<extra></extra>',
+            hovertemplate='<b>Year:</b> %{fullData.name}<br><b>Month:</b> %{customdata}<br><b>Capture rate:</b> %{y:.1f}%<extra></extra>',
             customdata=year_data['month_date'].dt.strftime('%B'),
             legendgroup=f'group_{year}',
             showlegend=True,
@@ -530,8 +521,33 @@ for year in sorted(monthly['year'].unique()):
         row=5, col=1, secondary_y=False
     )
 
-fig.update_yaxes(title_text='Profile Factor (%)', row=5, col=1)
+fig.update_yaxes(title_text='Capture rate (%)', row=5, col=1, range=[0, 100])
 fig.update_xaxes(title_text='', row=5, col=1, tickmode='array', tickvals=list(range(1, 13)), ticktext=['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], range=[0.5, 12.5])
+
+# Sixth subplot: Wind Capture Price (volume-weighted DA price for wind, €/MWh)
+for year in sorted(monthly['year'].unique()):
+    year_data = monthly[monthly['year'] == year].copy()
+    year_data['month_num'] = year_data['month_date'].dt.month
+    year_data = year_data.sort_values('month_num')
+
+    fig.add_trace(
+        go.Scatter(
+            x=year_data['month_num'],
+            y=year_data['Monthly_Wind_Power_Weighted_DA_Price'],
+            name=f'{year}',
+            mode='lines+markers',
+            line=dict(width=2),
+            marker=dict(size=6),
+            hovertemplate='<b>Year:</b> %{fullData.name}<br><b>Month:</b> %{customdata}<br><b>Capture Price:</b> €%{y:.1f}/MWh<extra></extra>',
+            customdata=year_data['month_date'].dt.strftime('%B'),
+            legendgroup=f'group_{year}',
+            showlegend=False,
+            line_color=year_to_color[year]
+        ),
+        row=6, col=1, secondary_y=False
+    )
+fig.update_yaxes(title_text='Capture Price (€/MWh)', row=6, col=1)
+fig.update_xaxes(title_text='', row=6, col=1, tickmode='array', tickvals=list(range(1, 13)), ticktext=['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], range=[0.5, 12.5])
 
 # Update layout with individual legends for each subplot
 #fig.update_layout(
@@ -541,7 +557,7 @@ fig.update_xaxes(title_text='', row=5, col=1, tickmode='array', tickvals=list(ra
 
 # Add individual legends for each subplot
 fig.update_layout(
-    height=1200,  # Increase overall figure height
+    height=1400,  # Six chart rows + summary table
     legend=dict(
         x=1.02,
         y=1,
@@ -580,7 +596,7 @@ monthly_summary_rounded_reversed = monthly_summary_rounded.sort_values('month', 
 
 table_fig = go.Figure(data=[go.Table(
     header=dict(
-        values=['Month', 'Wind Energy produced (GWh/month)', 'Wind generation capacity NL (MW AC)', 'Market value Wind (EUR/MW/year)', 'Day-Ahead average price (EUR/MWh)', 'Wind-profile weighted price (EUR/MWh)', 'Wind Capture Rate NL(profile factor %)'],
+        values=['Month', 'Wind Energy produced (GWh/month)', 'Wind generation capacity NL (MW AC)', 'Market value Wind (EUR/MW/year)', 'Day-Ahead average price (EUR/MWh)', 'Wind Capture price (EUR/MWh)', 'Wind Capture rate (%)'],
         font=dict(size=10),
         align='left'
     ),

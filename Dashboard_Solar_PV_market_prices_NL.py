@@ -9,18 +9,7 @@ os.system('clear')
 # TODO: add a function to only export PV power when DA prices are non-negative
 # Graph shows monthly values per year with each year as a different line on the month x-axis graph
 
-df_prices = load_da_prices()
-
-# EPEX day-ahead switched from 1h to 15-min resolution on 2025-10-01.
-# NED solar/wind data stays hourly. Aggregate prices to hourly mean here so
-# the merge is 1:1 and downstream value calcs see one price per hour.
-# Floor in UTC to avoid DST-ambiguity on autumn fall-back (02:00 occurs twice).
-hour_floor = df_prices['time'].dt.tz_convert('UTC').dt.floor('h').dt.tz_convert('Europe/Amsterdam')
-df_prices = (
-    df_prices.assign(time=hour_floor)
-             .groupby('time', as_index=False)['DA_price'].mean()
-)
-
+df_prices = load_da_prices(aggregate_to_hourly=True)
 df_pv = load_ned_pv()
 
 #print(df_prices)
@@ -389,13 +378,14 @@ def format_percentage(x):
 
 # --- Create subplots ---
 fig = make_subplots(
-    rows=6, cols=1, shared_xaxes=False, vertical_spacing=0.06,
+    rows=7, cols=1, shared_xaxes=False, vertical_spacing=0.06,
     subplot_titles=(
         'Hourly PV Power Output in NL',
         'Total PV Yield in NL',
         'Yield normalized per installed capacity',
         'Market Value per installed capacity',
-        'Profile Factor PV (%)',
+        'Capture Rate PV (%)',
+        'Solar Capture Price (€/MWh)',
         ' '
     ),
     specs=[
@@ -404,9 +394,10 @@ fig = make_subplots(
         [{"secondary_y": False}],
         [{"secondary_y": False}],
         [{"secondary_y": False}],
+        [{"secondary_y": False}],
          [{"type": "table"}]
     ],
-    row_heights=[0.18, 0.18, 0.18, 0.18, 0.18, 0.40]  # Adjusted heights for 6 subplots
+    row_heights=[0.16, 0.16, 0.16, 0.16, 0.16, 0.16, 0.34]
 )
 
 
@@ -418,8 +409,10 @@ fig.add_trace(
         y=hourly['Hourly_PV_Power_GW'],
         mode='lines',
         name='Hourly PV Power',
-        line=dict(color='blue', width=1),
-        opacity=0.7,
+        line=dict(color='blue', width=0.5),
+        fill='tozeroy',
+        fillcolor='rgba(31, 119, 180, 0.4)',
+        opacity=0.9,
         showlegend=False
     ),
     row=1, col=1, secondary_y=False
@@ -453,7 +446,7 @@ fig.update_xaxes(title_text='', row=1, col=1)
 fig.add_trace(
     go.Table(
         header=dict(
-            values=['Year', 'PV Energy produced (GWh/y)', 'Installed PV Capacity in NL (GWp) Average', 'MWh yield / MWp installed', 'Annual Market value (EUR/MWp/y)', 'Day-Ahead linear avg price (EUR/MWh)', 'PV-profile weighted price (EUR/MWh)', 'Profile Factor of PV (%)'],
+            values=['Year', 'PV Energy produced (GWh/y)', 'Installed PV Capacity in NL (GWp) Average', 'MWh yield / MWp installed', 'Annual Market value (EUR/MWp/y)', 'Day-Ahead linear avg price (EUR/MWh)', 'PV Capture price (EUR/MWh)', 'Capture rate of PV (%)'],
             font=dict(size=10),
             align='left'
         ),
@@ -473,7 +466,7 @@ fig.add_trace(
             height=20
         )
     ),
-    row=6, col=1
+    row=7, col=1
 )
 
 
@@ -577,7 +570,7 @@ for year in sorted(monthly['year'].unique()):
             mode='lines+markers',
             line=dict(width=2),
             marker=dict(size=6),
-            hovertemplate='<b>Year:</b> %{fullData.name}<br><b>Month:</b> %{customdata}<br><b>Profile Factor:</b> %{y:.1f}%<extra></extra>',
+            hovertemplate='<b>Year:</b> %{fullData.name}<br><b>Month:</b> %{customdata}<br><b>Capture rate:</b> %{y:.1f}%<extra></extra>',
             customdata=year_data['month_date'].dt.strftime('%B'),
             legendgroup=f'group_{year}',
             showlegend=True,
@@ -586,8 +579,33 @@ for year in sorted(monthly['year'].unique()):
         row=5, col=1, secondary_y=False
     )
 
-fig.update_yaxes(title_text='Profile Factor (%)', row=5, col=1)
+fig.update_yaxes(title_text='Capture rate (%)', row=5, col=1, range=[0, 100])
 fig.update_xaxes(title_text='', row=5, col=1, tickmode='array', tickvals=list(range(1, 13)), ticktext=['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], range=[0.5, 12.5])
+
+# Sixth subplot: Solar Capture Price (volume-weighted DA price for PV, €/MWh)
+for year in sorted(monthly['year'].unique()):
+    year_data = monthly[monthly['year'] == year].copy()
+    year_data['month_num'] = year_data['month_date'].dt.month
+    year_data = year_data.sort_values('month_num')
+
+    fig.add_trace(
+        go.Scatter(
+            x=year_data['month_num'],
+            y=year_data['Monthly_PV_Power_Weighted_DA_Price'],
+            name=f'{year}',
+            mode='lines+markers',
+            line=dict(width=2),
+            marker=dict(size=6),
+            hovertemplate='<b>Year:</b> %{fullData.name}<br><b>Month:</b> %{customdata}<br><b>Capture Price:</b> €%{y:.1f}/MWh<extra></extra>',
+            customdata=year_data['month_date'].dt.strftime('%B'),
+            legendgroup=f'group_{year}',
+            showlegend=False,
+            line_color=year_to_color[year]
+        ),
+        row=6, col=1, secondary_y=False
+    )
+fig.update_yaxes(title_text='Capture Price (€/MWh)', row=6, col=1)
+fig.update_xaxes(title_text='', row=6, col=1, tickmode='array', tickvals=list(range(1, 13)), ticktext=['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], range=[0.5, 12.5])
 
 # Update layout with individual legends for each subplot
 #fig.update_layout(
@@ -625,7 +643,7 @@ monthly_summary_rounded_reversed = monthly_summary_rounded.sort_values('month', 
 
 table_fig = go.Figure(data=[go.Table(
     header=dict(
-        values=['Month', 'PV Energy produced (GWh/month)', 'Solar PV capacity NL (GWp)', 'Market value PV (EUR/MWp/year)', 'Day-Ahead average price (EUR/MWh)', 'PV-profile weighted price (EUR/MWh)', 'PV Capture Rate NL (profile factor %)'],
+        values=['Month', 'PV Energy produced (GWh/month)', 'Solar PV capacity NL (GWp)', 'Market value PV (EUR/MWp/year)', 'Day-Ahead average price (EUR/MWh)', 'PV Capture price (EUR/MWh)', 'PV Capture rate (%)'],
         font=dict(size=10),
         align='left'
     ),
