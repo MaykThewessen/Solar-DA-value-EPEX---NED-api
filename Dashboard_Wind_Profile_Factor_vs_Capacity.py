@@ -28,8 +28,8 @@ capacity_points = [
     (pd.Timestamp('2022-12-31', tz='Europe/Amsterdam'), 5600),
     (pd.Timestamp('2023-12-31', tz='Europe/Amsterdam'), 6200),  # MW AC
     (pd.Timestamp('2024-12-31', tz='Europe/Amsterdam'), 6580),  # MW AC
-    (pd.Timestamp('2025-12-31', tz='Europe/Amsterdam'), 6580 + (80*12)/0.60),  # MW AC # lower installed Wind estimate update
-    (pd.Timestamp('2026-12-31', tz='Europe/Amsterdam'), 6580 + 1600 + 1440),  # MW AC
+    (pd.Timestamp('2025-12-31', tz='Europe/Amsterdam'), 6580 + 1300),  # MW AC # lower installed Wind estimate update
+    (pd.Timestamp('2026-12-31', tz='Europe/Amsterdam'), 6580 + 1300 + 1240),  # MW AC
 ]
 
 def fit_installed_capacity_piecewise(date):

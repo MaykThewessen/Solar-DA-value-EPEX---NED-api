@@ -42,8 +42,8 @@ capacity_points = [
     (pd.Timestamp('2022-12-31', tz='Europe/Amsterdam'), 19536),
     (pd.Timestamp('2023-12-31', tz='Europe/Amsterdam'), 24302),  # MWp DC
     (pd.Timestamp('2024-12-31', tz='Europe/Amsterdam'), 28621),  # MWp DC
-    (pd.Timestamp('2025-12-31', tz='Europe/Amsterdam'), 28621 + (80*12)/0.60),  # MWp DC # lower installed PV estimate update by https://x.com/BM_Visser/status/1954798688049697116
-    (pd.Timestamp('2026-12-31', tz='Europe/Amsterdam'), 28621 + 1600 + 1440),  # MWp DC
+    (pd.Timestamp('2025-12-31', tz='Europe/Amsterdam'), 28621 + 1300),  # MWp DC # lower installed PV estimate update by https://x.com/BM_Visser/status/1954798688049697116
+    (pd.Timestamp('2026-12-31', tz='Europe/Amsterdam'), 28621 + 1300 + 1240),  # MWp DC
 ]
 
 
