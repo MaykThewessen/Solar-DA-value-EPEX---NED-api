@@ -8,13 +8,13 @@ os.system('clear')
 # TODO: add a function to only export Wind power when DA prices are non-negative
 # Graph shows yearly relationship between installed Wind capacity and profile factor
 
-df_prices = load_da_prices(aggregate_to_hourly=True)
+df_prices = load_da_prices()
 df_wind = load_ned_wind()
 
 # Merge the two dataframes on the 'time' column
 df_combined = pd.merge(df_prices, df_wind, on='time', how='left')
 
-df_combined['Wind_value'] = df_combined['Wind_production_MW'] * df_combined['DA_price']
+df_combined['Wind_value'] = df_combined['Wind_production_MWh'] * df_combined['DA_price']
 
 # Create installed capacity column in MW using a linear fit (extrapolation allowed)
 from datetime import datetime
@@ -76,7 +76,7 @@ print("Date range:", df_combined['time'].min(), "to", df_combined['time'].max())
 
 # Calculate yearly data
 yearly_totals = df_combined.groupby(df_combined['time'].dt.year).agg({
-    'Wind_production_MW': 'sum',
+    'Wind_production_MWh': 'sum',
     'Wind_value': 'sum',
     'installed_capacity_MW': 'mean',
     'DA_price': 'mean'
@@ -84,7 +84,7 @@ yearly_totals = df_combined.groupby(df_combined['time'].dt.year).agg({
 
 yearly_totals = yearly_totals.rename(columns={
     'time': 'year',
-    'Wind_production_MW': 'Yearly_Wind_Energy_MWh',
+    'Wind_production_MWh': 'Yearly_Wind_Energy_MWh',
     'Wind_value': 'Yearly_Total_Wind_Value',
     'installed_capacity_MW': 'Yearly_Installed_Capacity_MW',
     'DA_price': 'Yearly_Avg_DA_Price'
@@ -92,16 +92,16 @@ yearly_totals = yearly_totals.rename(columns={
 
 # Calculate yearly weighted average price
 yearly_weighted_prices = df_combined.groupby(df_combined['time'].dt.year).agg({
-    'Wind_production_MW': 'sum',
+    'Wind_production_MWh': 'sum',
     'DA_price': 'mean'
 }).reset_index()
 
 # Calculate weighted price manually
 yearly_weighted_prices['Yearly_Wind_Weighted_Price'] = yearly_weighted_prices.apply(
-    lambda row: (df_combined[df_combined['time'].dt.year == row['time']]['Wind_production_MW'] * 
+    lambda row: (df_combined[df_combined['time'].dt.year == row['time']]['Wind_production_MWh'] * 
                  df_combined[df_combined['time'].dt.year == row['time']]['DA_price']).sum() / 
-                df_combined[df_combined['time'].dt.year == row['time']]['Wind_production_MW'].sum() 
-                if df_combined[df_combined['time'].dt.year == row['time']]['Wind_production_MW'].sum() > 0 else float('nan'), axis=1
+                df_combined[df_combined['time'].dt.year == row['time']]['Wind_production_MWh'].sum() 
+                if df_combined[df_combined['time'].dt.year == row['time']]['Wind_production_MWh'].sum() > 0 else float('nan'), axis=1
 )
 
 yearly_weighted_prices = yearly_weighted_prices.rename(columns={'time': 'year'})

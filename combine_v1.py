@@ -5,7 +5,7 @@ from data_loader import load_da_prices, load_ned_pv
 os.system('clear')
 
 
-df_prices = load_da_prices(clip_future=False, aggregate_to_hourly=True)
+df_prices = load_da_prices(clip_future=False)
 df_pv = load_ned_pv()
 
 #print(df_prices)
@@ -18,7 +18,7 @@ df_combined = pd.merge(df_prices, df_pv, on='time', how='left')
 #df_combined = df_combined.set_index('time').interpolate(method='time').reset_index()
 
 
-df_combined['Solar_value'] = df_combined['Solar_production_MW'] * df_combined['DA_price']
+df_combined['Solar_value'] = df_combined['Solar_production_MWh'] * df_combined['DA_price']
 
 
 # Create installed capacity column in MW
@@ -85,7 +85,7 @@ monthly_summary = (
     df_combined.groupby('month').apply(
         lambda x: (
             lambda avg_price, weighted_price: pd.Series({
-                'Total_PV_Energy_GWh': round(x['Solar_production_MW'].sum()/1000, 1),
+                'Total_PV_Energy_GWh': round(x['Solar_production_MWh'].sum()/1000, 1),
                 'Value_per_MWp_DC_EUR': round(x['Solar_value'].sum() / x['installed_capacity_MW'].mean(), 1),
                 'Avg_DA_Price': round(avg_price, 1),
                 'PV_Weighted_Price': round(weighted_price, 1),
@@ -93,7 +93,7 @@ monthly_summary = (
             })
         )(
             x['DA_price'].mean(),
-            (x['Solar_production_MW'] * x['DA_price']).sum() / x['Solar_production_MW'].sum() if x['Solar_production_MW'].sum() > 0 else float('nan')
+            (x['Solar_production_MWh'] * x['DA_price']).sum() / x['Solar_production_MWh'].sum() if x['Solar_production_MWh'].sum() > 0 else float('nan')
         )
     )
     .reset_index()
@@ -116,9 +116,9 @@ df_combined['month_date'] = df_combined['time'].dt.to_period('M').dt.to_timestam
 monthly = (
     df_combined.groupby('month_date').apply(
         lambda x: pd.Series({
-            'Monthly_PV_Energy_MWh': round(x['Solar_production_MW'].sum(), 1),
+            'Monthly_PV_Energy_MWh': round(x['Solar_production_MWh'].sum(), 1),
             'Monthly_Value_per_MWp_DC_EUR': round(x['Solar_value'].sum() / x['installed_capacity_MW'].mean(), 1),
-            'Monthly_PV_Power_Weighted_DA_Price': (x['Solar_production_MW'] * x['DA_price']).sum() / x['Solar_production_MW'].sum() if x['Solar_production_MW'].sum() > 0 else float('nan'),
+            'Monthly_PV_Power_Weighted_DA_Price': (x['Solar_production_MWh'] * x['DA_price']).sum() / x['Solar_production_MWh'].sum() if x['Solar_production_MWh'].sum() > 0 else float('nan'),
             'Monthly_Installed_Capacity_MW': x['installed_capacity_MW'].mean()  # or .last() for end-of-month
         })
     )
