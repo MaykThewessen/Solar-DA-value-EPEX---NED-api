@@ -47,8 +47,12 @@ capacity_points = [
 ]
 
 
+print("Installed PV capacity NL (PV GWp DC, year-end):")
+_now = pd.Timestamp.now(tz='Europe/Amsterdam')
+for dt, cap in capacity_points:
+    status = "actual" if dt <= _now else "outlook"
+    print(f"  {dt.year}   {cap:>5,} MW  ({status})")
 
-print(capacity_points)
 
 
 # Prepare arrays for fitting

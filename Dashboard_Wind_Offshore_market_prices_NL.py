@@ -34,28 +34,25 @@ df_combined['Wind_value'] = df_combined['Wind_production_MWh'] * df_combined['DA
 # Create installed capacity column in MW using a linear fit (extrapolation allowed)
 from datetime import datetime
 
-# Known data points for installed Offshore Wind capacity NL (MW AC) at year-end.
-# Source: Birdview scenario file "_Step3 BESS-PV_GWp_Gas-price_CO2_Futures_v20 Central.xlsx",
-# sheet "Wind NL", column F (Offshore GW end-of-year).
+# Known data points for installed capacity (AC) at year-end
 capacity_points = [
-    (pd.Timestamp('2017-12-31', tz='Europe/Amsterdam'),   957),  # MW AC
-    (pd.Timestamp('2018-12-31', tz='Europe/Amsterdam'),   957),
-    (pd.Timestamp('2019-12-31', tz='Europe/Amsterdam'),   957),
-    (pd.Timestamp('2020-12-31', tz='Europe/Amsterdam'),  2460),  # Borssele I+II + III+IV
-    (pd.Timestamp('2021-12-31', tz='Europe/Amsterdam'),  2460),
-    (pd.Timestamp('2022-12-31', tz='Europe/Amsterdam'),  2570),
-    (pd.Timestamp('2023-12-31', tz='Europe/Amsterdam'),  3978),  # HKZ I-IV
-    (pd.Timestamp('2024-12-31', tz='Europe/Amsterdam'),  4748),  # + HKN
-    (pd.Timestamp('2025-12-31', tz='Europe/Amsterdam'),  4748),  # outlook (Central)
-    (pd.Timestamp('2026-12-31', tz='Europe/Amsterdam'),  4748),
-    (pd.Timestamp('2027-12-31', tz='Europe/Amsterdam'),  5136),
-    (pd.Timestamp('2028-12-31', tz='Europe/Amsterdam'),  5523),
-    (pd.Timestamp('2029-12-31', tz='Europe/Amsterdam'),  6279),
-    (pd.Timestamp('2030-12-31', tz='Europe/Amsterdam'),  8279),  # HKW + IJmuiden Ver build-out
+    (pd.Timestamp('2017-12-31', tz='Europe/Amsterdam'), 3245), # MW AC Offshore Wind only
+    (pd.Timestamp('2018-12-31', tz='Europe/Amsterdam'), 3436), # MW AC
+    (pd.Timestamp('2019-12-31', tz='Europe/Amsterdam'), 3527), # MW AC
+    (pd.Timestamp('2020-12-31', tz='Europe/Amsterdam'), 4188),
+    (pd.Timestamp('2021-12-31', tz='Europe/Amsterdam'), 5186),
+    (pd.Timestamp('2022-12-31', tz='Europe/Amsterdam'), 6131),
+    (pd.Timestamp('2023-12-31', tz='Europe/Amsterdam'), 6757),  # MW AC
+    (pd.Timestamp('2024-12-31', tz='Europe/Amsterdam'), 6965),  # MW AC
+    (pd.Timestamp('2025-12-31', tz='Europe/Amsterdam'), 6965 + 100),  # MW AC # lower installed Wind estimate update
+    (pd.Timestamp('2026-12-31', tz='Europe/Amsterdam'), 6965 + 100 + 50),  # MW AC
 ]
 
-print(capacity_points)
-
+print("Installed Offshore Wind capacity NL (MW AC, year-end):")
+_now = pd.Timestamp.now(tz='Europe/Amsterdam')
+for dt, cap in capacity_points:
+    status = "actual" if dt <= _now else "outlook"
+    print(f"  {dt.year}   {cap:>5,} MW  ({status})")
 
 
 def fit_installed_capacity_piecewise(date):
@@ -413,7 +410,7 @@ fig.update_xaxes(title_text='', row=1, col=1, tickmode='array', tickvals=list(ra
 # Second subplot: Installed Wind Capacity
 # Create date range for the fitted curve
 start_date = pd.Timestamp('2018-01-01', tz='Europe/Amsterdam')
-end_date = pd.Timestamp('2030-12-31', tz='Europe/Amsterdam')
+end_date = pd.Timestamp('2025-12-31', tz='Europe/Amsterdam')
 date_range = pd.date_range(start=start_date, end=end_date, freq='D')
 
 # Calculate fitted capacity values

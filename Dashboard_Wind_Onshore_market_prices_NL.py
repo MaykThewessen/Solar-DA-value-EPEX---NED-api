@@ -150,7 +150,7 @@ monthly_summary = (
         'Wind_value': 'sum',
         'installed_capacity_MW': 'mean',
         'DA_price': 'mean'
-    }).reset_index().round(1)
+    }).round(1).reset_index()
 )
 
 # Calculate derived columns in the correct order to match expected format
