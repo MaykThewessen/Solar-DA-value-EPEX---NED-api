@@ -2,14 +2,13 @@ import pandas as pd  # type: ignore
 import numpy as np  # type: ignore
 import os
 import warnings
-from data_loader import load_da_prices, load_ned_wind
+from data_loader import load_da_prices, load_ned_wind_offshore
 os.system('clear')
 
-# TODO: add a function to only export Wind power when DA prices are non-negative
-# Graph shows yearly relationship between installed Wind capacity and profile factor
+# Graph shows yearly relationship between installed Offshore Wind capacity and profile factor
 
 df_prices = load_da_prices()
-df_wind = load_ned_wind()
+df_wind = load_ned_wind_offshore()
 
 # Merge the two dataframes on the 'time' column
 df_combined = pd.merge(df_prices, df_wind, on='time', how='left')
@@ -19,17 +18,24 @@ df_combined['Wind_value'] = df_combined['Wind_production_MWh'] * df_combined['DA
 # Create installed capacity column in MW using a linear fit (extrapolation allowed)
 from datetime import datetime
 
-# Known data points for installed capacity (AC) at year-end
+# Known data points for installed Offshore Wind capacity NL (MW AC) at year-end.
+# Source: Birdview scenario file "_Step3 BESS-PV_GWp_Gas-price_CO2_Futures_v20 Central.xlsx",
+# sheet "Wind NL", column F (Offshore GW end-of-year).
 capacity_points = [
-    (pd.Timestamp('2019-01-01', tz='Europe/Amsterdam'), 3100), # MW AC
-    (pd.Timestamp('2019-12-31', tz='Europe/Amsterdam'), 3190), # MW AC
-    (pd.Timestamp('2020-12-31', tz='Europe/Amsterdam'), 3800),
-    (pd.Timestamp('2021-12-31', tz='Europe/Amsterdam'), 4800),
-    (pd.Timestamp('2022-12-31', tz='Europe/Amsterdam'), 5600),
-    (pd.Timestamp('2023-12-31', tz='Europe/Amsterdam'), 6200),  # MW AC
-    (pd.Timestamp('2024-12-31', tz='Europe/Amsterdam'), 6580),  # MW AC
-    (pd.Timestamp('2025-12-31', tz='Europe/Amsterdam'), 6580 + 1300),  # MW AC # lower installed Wind estimate update
-    (pd.Timestamp('2026-12-31', tz='Europe/Amsterdam'), 6580 + 1300 + 1240),  # MW AC
+    (pd.Timestamp('2017-12-31', tz='Europe/Amsterdam'),   957),  # MW AC
+    (pd.Timestamp('2018-12-31', tz='Europe/Amsterdam'),   957),
+    (pd.Timestamp('2019-12-31', tz='Europe/Amsterdam'),   957),
+    (pd.Timestamp('2020-12-31', tz='Europe/Amsterdam'),  2460),  # Borssele I+II + III+IV
+    (pd.Timestamp('2021-12-31', tz='Europe/Amsterdam'),  2460),
+    (pd.Timestamp('2022-12-31', tz='Europe/Amsterdam'),  2570),
+    (pd.Timestamp('2023-12-31', tz='Europe/Amsterdam'),  3978),  # HKZ I-IV
+    (pd.Timestamp('2024-12-31', tz='Europe/Amsterdam'),  4748),  # + HKN
+    (pd.Timestamp('2025-12-31', tz='Europe/Amsterdam'),  4748),  # outlook (Central)
+    (pd.Timestamp('2026-12-31', tz='Europe/Amsterdam'),  4748),
+    (pd.Timestamp('2027-12-31', tz='Europe/Amsterdam'),  5136),
+    (pd.Timestamp('2028-12-31', tz='Europe/Amsterdam'),  5523),
+    (pd.Timestamp('2029-12-31', tz='Europe/Amsterdam'),  6279),
+    (pd.Timestamp('2030-12-31', tz='Europe/Amsterdam'),  8279),  # HKW + IJmuiden Ver build-out
 ]
 
 def fit_installed_capacity_piecewise(date):
@@ -171,12 +177,12 @@ fig = go.Figure()
 # Update layout
 fig.update_layout(
     title=dict(
-        text='Wind Profile Factor vs Installed Capacity Wind in Netherlands<br><sub>Each point represents year avg installed capacity vs yearly Wind profile factor</sub>',
+        text='Offshore Wind Profile Factor vs Installed Offshore Wind Capacity in Netherlands<br><sub>Each point represents year avg installed capacity vs yearly Offshore Wind profile factor</sub>',
         x=0.5,
         font=dict(size=16)
     ),
     xaxis=dict(
-        title=dict(text='Installed Wind Capacity NL (GW AC) yearly avg', font=dict(size=14)),
+        title=dict(text='Installed Offshore Wind Capacity NL (GW AC) yearly avg', font=dict(size=14)),
         tickfont=dict(size=12),
         gridcolor='lightgray',
         zeroline=False,
@@ -424,12 +430,12 @@ if len(plot_data) > 2:
     )
 
 # Write to HTML and PDF files
-fig.write_html('wind_profile_factor_vs_capacity_dashboard.html', auto_open=True)
-fig.write_image('wind_profile_factor_vs_capacity_dashboard.pdf', format='pdf')
+fig.write_html('wind_offshore_profile_factor_vs_capacity_dashboard.html', auto_open=True)
+fig.write_image('wind_offshore_profile_factor_vs_capacity_dashboard.pdf', format='pdf')
 
 print(f"\nDashboard created:")
-print(f"  - HTML: wind_profile_factor_vs_capacity_dashboard.html")
-print(f"  - PDF: wind_profile_factor_vs_capacity_dashboard.pdf")
+print(f"  - HTML: wind_offshore_profile_factor_vs_capacity_dashboard.html")
+print(f"  - PDF: wind_offshore_profile_factor_vs_capacity_dashboard.pdf")
 print(f"Data points: {len(plot_data)} years")
 print(f"Years covered: {plot_data['year'].min()} - {plot_data['year'].max()}")
 print(f"Capacity range: {plot_data['July_1st_Installed_Capacity_GW_AC'].min():.2f} - {plot_data['July_1st_Installed_Capacity_GW_AC'].max():.2f} GW AC")
@@ -453,8 +459,8 @@ if len(plot_data) > 2:
     if 'a' in locals() and 'b' in locals():
         print(f"Exponential extrapolation equation (based on {trend_years}): y = {a:.2f} * e^({b:.3f}*x)")
         print(f"Exponential decay rate: {b:.3f} per GW")
-        print("Asymptotic behavior: Wind profile factor approaches 0% but never reaches it")
-        print("Wind will always retain some market value on the day-ahead market")
+        print("Asymptotic behavior: Offshore Wind profile factor approaches 0% but never reaches it")
+        print("Offshore Wind will always retain some market value on the day-ahead market")
         
         # Calculate and print threshold milestones
         thresholds = [5.0, 2.0, 1.0]

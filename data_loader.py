@@ -70,8 +70,47 @@ def load_ned_pv(tz: str = DEFAULT_TZ) -> pd.DataFrame:
     return df
 
 
+def _load_ned_wind_component(column: str, out_col: str, tz: str) -> pd.DataFrame:
+    with _connect() as con:
+        df = con.execute(f"""
+            WITH bounds AS (
+                SELECT MIN(timestamp_utc) AS lo, MAX(timestamp_utc) AS hi
+                  FROM ts_15min WHERE {column} IS NOT NULL
+            )
+            SELECT t.timestamp_utc                  AS time,
+                   COALESCE(t.{column}, 0) * {SLOT_HOURS} AS {out_col}
+              FROM ts_15min t, bounds b
+             WHERE t.timestamp_utc BETWEEN b.lo AND b.hi
+             ORDER BY t.timestamp_utc
+        """).df()
+    df['time'] = _utc_to_local(df['time'], tz)
+    return df
+
+
+def load_ned_wind_onshore(tz: str = DEFAULT_TZ) -> pd.DataFrame:
+    """Load NL Onshore Wind energy per 15-min slot from birdcurve.ts_15min.
+
+    Returns `Wind_production_MWh` (= MW × 0.25, Onshore only). Time range
+    clipped to where Onshore Wind was actually ingested.
+    """
+    return _load_ned_wind_component(
+        'NED_Wind_Onshore__Wind_Onshore', 'Wind_production_MWh', tz,
+    )
+
+
+def load_ned_wind_offshore(tz: str = DEFAULT_TZ) -> pd.DataFrame:
+    """Load NL Offshore Wind energy per 15-min slot from birdcurve.ts_15min.
+
+    Returns `Wind_production_MWh` (= MW × 0.25, Offshore only). Time range
+    clipped to where Offshore Wind was actually ingested.
+    """
+    return _load_ned_wind_component(
+        'NED_Wind_Offshore__Wind_Offshore', 'Wind_production_MWh', tz,
+    )
+
+
 def load_ned_wind(tz: str = DEFAULT_TZ) -> pd.DataFrame:
-    """Load NL total Wind energy per 15-min slot from birdcurve.ts_15min.
+    """Load NL total Wind energy per 15-min slot (Onshore + Offshore).
 
     Returns `Wind_production_MWh` (= MW × 0.25, summed Onshore + Offshore).
     Time range bounded to where at least one wind column has been ingested;
@@ -134,9 +173,11 @@ def load_da_prices(tz: str = DEFAULT_TZ, clip_future: bool = True) -> pd.DataFra
 
 if __name__ == '__main__':
     for label, fn in [
-        ('NED PV',    load_ned_pv),
-        ('NED Wind',  load_ned_wind),
-        ('DA prices', load_da_prices),
+        ('NED PV',            load_ned_pv),
+        ('NED Wind Onshore',  load_ned_wind_onshore),
+        ('NED Wind Offshore', load_ned_wind_offshore),
+        ('NED Wind (total)',  load_ned_wind),
+        ('DA prices',         load_da_prices),
     ]:
         df = fn()
         print(f"{label}: {len(df):>8,} rows  "

@@ -25,21 +25,25 @@ flowchart LR
 
     subgraph LOADER["data_loader.py"]
         LP["load_ned_pv()"]
-        LW["load_ned_wind()"]
+        LWON["load_ned_wind_onshore()"]
+        LWOFF["load_ned_wind_offshore()"]
+        LW["load_ned_wind() — combined"]
         LD["load_da_prices()"]
     end
 
     subgraph ANALYSIS["Analysis layer"]
         C3["combine_v3.py<br/>(monthly value)"]
         DPV["Dashboard_PV_…"]
-        DW["Dashboard_Wind_…"]
+        DWON["Dashboard_Wind_Onshore_…"]
+        DWOFF["Dashboard_Wind_Offshore_…"]
         NEDPY["NED.py"]
     end
 
     subgraph OUT["Artifacts (HTML / PDF)"]
         HSOL["solar_production_plot_v3.html"]
         HPV["pv_profile_factor_vs_capacity_dashboard.html"]
-        HWIND["wind_profile_factor_vs_capacity_dashboard.html"]
+        HWINDON["wind_onshore_production_plot_v3.html<br/>wind_onshore_profile_factor_vs_capacity_dashboard.html"]
+        HWINDOFF["wind_offshore_production_plot_v3.html<br/>wind_offshore_profile_factor_vs_capacity_dashboard.html"]
         TBL["monthly_summary_table.html"]
     end
 
@@ -48,16 +52,18 @@ flowchart LR
     CBS  -.calibration.-> ANALYSIS
 
     TS15 --> LP
-    TS15 --> LW
+    TS15 --> LWON & LWOFF & LW
     TSH  --> LD
 
-    LP --> C3 & DPV & NEDPY
-    LW --> DW
-    LD --> C3 & DPV & DW & NEDPY
+    LP    --> C3 & DPV & NEDPY
+    LWON  --> DWON
+    LWOFF --> DWOFF
+    LD    --> C3 & DPV & DWON & DWOFF & NEDPY
 
-    C3   --> HSOL & TBL
-    DPV  --> HPV
-    DW   --> HWIND
+    C3    --> HSOL & TBL
+    DPV   --> HPV
+    DWON  --> HWINDON
+    DWOFF --> HWINDOFF
 ```
 
 ---
@@ -82,8 +88,10 @@ graph TD
     DPV3["Dashboard_PV_Profile_Factor_vs_Capacity-xkcd-matplotlib.py"]:::entry
     DPVMK["Dashboard_Solar_PV_market_prices_NL.py"]:::entry
 
-    DW1["Dashboard_Wind_Profile_Factor_vs_Capacity.py"]:::entry
-    DWMK["Dashboard_Wind_market_prices_NL.py"]:::entry
+    DW1ON["Dashboard_Wind_Onshore_Profile_Factor_vs_Capacity.py"]:::entry
+    DW1OFF["Dashboard_Wind_Offshore_Profile_Factor_vs_Capacity.py"]:::entry
+    DWMKON["Dashboard_Wind_Onshore_market_prices_NL.py"]:::entry
+    DWMKOFF["Dashboard_Wind_Offshore_market_prices_NL.py"]:::entry
 
     NEDPY["NED.py"]:::entry
     CMP["compar_prices_June_July_2025.py"]:::entry
@@ -248,8 +256,10 @@ gantt
 | `monthly_summary_table.html` | `combine_v3.py` | Monthly PV production, installed capacity, market value, price metrics |
 | `pv_profile_factor_vs_capacity_dashboard.html` | `Dashboard_PV_Profile_Factor_vs_Capacity.py` | Profile factor vs. installed DC capacity (yearly) |
 | `pv_profile_factor_vs_capacity_dashboard_xkcd.{png,pdf}` | `…-xkcd-matplotlib.py` | Same, xkcd hand-drawn style |
-| `wind_production_plot_v3.html` | wind dashboards | Wind energy + market value |
-| `wind_profile_factor_vs_capacity_dashboard.html` | `Dashboard_Wind_Profile_Factor_vs_Capacity.py` | Wind profile factor vs. installed capacity |
+| `wind_onshore_production_plot_v3.html` | `Dashboard_Wind_Onshore_market_prices_NL.py` | Onshore Wind energy + market value |
+| `wind_offshore_production_plot_v3.html` | `Dashboard_Wind_Offshore_market_prices_NL.py` | Offshore Wind energy + market value |
+| `wind_onshore_profile_factor_vs_capacity_dashboard.html` | `Dashboard_Wind_Onshore_Profile_Factor_vs_Capacity.py` | Onshore Wind profile factor vs. installed capacity |
+| `wind_offshore_profile_factor_vs_capacity_dashboard.html` | `Dashboard_Wind_Offshore_Profile_Factor_vs_Capacity.py` | Offshore Wind profile factor vs. installed capacity |
 | `compare_prices_july2025_vs_june2025*.html` | `compar_prices_June_July_2025.py` | Month-over-month price overlay |
 
 ---

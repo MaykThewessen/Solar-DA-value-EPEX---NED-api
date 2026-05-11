@@ -2,12 +2,12 @@ import pandas as pd  # type: ignore
 import numpy as np  # type: ignore
 import os
 import warnings
-from data_loader import load_da_prices, load_ned_wind
+from data_loader import load_da_prices, load_ned_wind_onshore
 os.system('clear')
 
 
 df_prices = load_da_prices(clip_future=False)
-df_wind = load_ned_wind()
+df_wind = load_ned_wind_onshore()
 
 #print(df_prices)
 #print(df_wind)
@@ -34,21 +34,31 @@ df_combined['Wind_value'] = df_combined['Wind_production_MWh'] * df_combined['DA
 # Create installed capacity column in MW using a linear fit (extrapolation allowed)
 from datetime import datetime
 
-# Known data points for installed capacity (AC) at year-end
+# Known data points for installed Onshore Wind capacity NL (MW AC) at year-end.
+# Source: Birdview scenario file "_Step3 BESS-PV_GWp_Gas-price_CO2_Futures_v20 Central.xlsx",
+# sheet "Wind NL", column E (Onshore GW end-of-year).
 capacity_points = [
-    (pd.Timestamp('2017-12-31', tz='Europe/Amsterdam'), 3245), # MW AC Onshore Wind only
-    (pd.Timestamp('2018-12-31', tz='Europe/Amsterdam'), 3436), # MW AC
-    (pd.Timestamp('2019-12-31', tz='Europe/Amsterdam'), 3527), # MW AC
+    (pd.Timestamp('2017-12-31', tz='Europe/Amsterdam'), 3245),  # MW AC
+    (pd.Timestamp('2018-12-31', tz='Europe/Amsterdam'), 3436),
+    (pd.Timestamp('2019-12-31', tz='Europe/Amsterdam'), 3527),
     (pd.Timestamp('2020-12-31', tz='Europe/Amsterdam'), 4188),
     (pd.Timestamp('2021-12-31', tz='Europe/Amsterdam'), 5186),
     (pd.Timestamp('2022-12-31', tz='Europe/Amsterdam'), 6131),
-    (pd.Timestamp('2023-12-31', tz='Europe/Amsterdam'), 6757),  # MW AC
-    (pd.Timestamp('2024-12-31', tz='Europe/Amsterdam'), 6965),  # MW AC
-    (pd.Timestamp('2025-12-31', tz='Europe/Amsterdam'), 6965 + 100),  # MW AC # lower installed Wind estimate update
-    (pd.Timestamp('2026-12-31', tz='Europe/Amsterdam'), 6965 + 100 + 50),  # MW AC
+    (pd.Timestamp('2023-12-31', tz='Europe/Amsterdam'), 6757),
+    (pd.Timestamp('2024-12-31', tz='Europe/Amsterdam'), 6965),
+    (pd.Timestamp('2025-12-31', tz='Europe/Amsterdam'), 7045),  # outlook (Central)
+    (pd.Timestamp('2026-12-31', tz='Europe/Amsterdam'), 7125),
+    (pd.Timestamp('2027-12-31', tz='Europe/Amsterdam'), 7205),
+    (pd.Timestamp('2028-12-31', tz='Europe/Amsterdam'), 7285),
+    (pd.Timestamp('2029-12-31', tz='Europe/Amsterdam'), 7365),
+    (pd.Timestamp('2030-12-31', tz='Europe/Amsterdam'), 7445),
 ]
 
-print(capacity_points)
+print("Installed Onshore Wind capacity NL (MW AC, year-end):")
+_now = pd.Timestamp.now(tz='Europe/Amsterdam')
+for dt, cap in capacity_points:
+    status = "actual" if dt <= _now else "outlook"
+    print(f"  {dt.year}   {cap:>5,} MW  ({status})")
 
 
 
@@ -117,14 +127,14 @@ plt.scatter(
     zorder=5
 )
 
-plt.title('Installed Wind Capacity: Fitted vs Known Data Points')
+plt.title('Installed Onshore Wind Capacity NL: Fitted vs Known Data Points')
 plt.xlabel('Date')
 plt.ylabel('Installed Capacity (MW)')
 plt.ylim(bottom=0)
 plt.legend()
 plt.grid(True)
 plt.tight_layout()
-plt.savefig('wind_installed_capacity_vs_known_points.pdf', bbox_inches='tight')
+plt.savefig('wind_onshore_installed_capacity_vs_known_points.pdf', bbox_inches='tight')
 plt.close()
 
 
@@ -293,12 +303,12 @@ def format_percentage(x):
 fig = make_subplots(
     rows=7, cols=1, shared_xaxes=False, vertical_spacing=0.08,
     subplot_titles=(
-        'Total Wind Yield in NL',
-        'Installed Wind Capacity',
+        'Total Onshore Wind Yield in NL',
+        'Installed Onshore Wind Capacity NL',
         'Yield normalized per installed capacity',
         'Market Value per installed capacity',
-        'Capture Rate Wind (%)',
-        'Wind Capture Price (€/MWh)',
+        'Capture Rate Onshore Wind (%)',
+        'Onshore Wind Capture Price (€/MWh)',
         ' '
     ),
     specs=[
@@ -319,7 +329,7 @@ fig = make_subplots(
 fig.add_trace(
     go.Table(
         header=dict(
-            values=['Year', 'Wind Energy produced (GWh/y)', 'Installed Wind Capacity in NL (MW) mid-year', 'MWh yield / MW installed', 'Annual Market value (EUR/MW/y)', 'Day-Ahead linear avg price (EUR/MWh)', 'Wind Capture price (EUR/MWh)', 'Capture rate of Wind (%)'],
+            values=['Year', 'Onshore Wind Energy produced (GWh/y)', 'Installed Onshore Wind Capacity in NL (MW) mid-year', 'MWh yield / MW installed', 'Annual Market value (EUR/MW/y)', 'Day-Ahead linear avg price (EUR/MWh)', 'Onshore Wind Capture price (EUR/MWh)', 'Capture rate of Onshore Wind (%)'],
             font=dict(size=10),
             align='left'
         ),
@@ -407,7 +417,7 @@ fig.update_xaxes(title_text='', row=1, col=1, tickmode='array', tickvals=list(ra
 # Second subplot: Installed Wind Capacity
 # Create date range for the fitted curve
 start_date = pd.Timestamp('2018-01-01', tz='Europe/Amsterdam')
-end_date = pd.Timestamp('2025-12-31', tz='Europe/Amsterdam')
+end_date = pd.Timestamp('2030-12-31', tz='Europe/Amsterdam')
 date_range = pd.date_range(start=start_date, end=end_date, freq='D')
 
 # Calculate fitted capacity values
@@ -596,7 +606,7 @@ monthly_summary_rounded_reversed = monthly_summary_rounded.sort_values('month', 
 
 table_fig = go.Figure(data=[go.Table(
     header=dict(
-        values=['Month', 'Wind Energy produced (GWh/month)', 'Wind generation capacity NL (MW AC)', 'Market value Wind (EUR/MW/year)', 'Day-Ahead average price (EUR/MWh)', 'Wind Capture price (EUR/MWh)', 'Wind Capture rate (%)'],
+        values=['Month', 'Onshore Wind Energy produced (GWh/month)', 'Onshore Wind generation capacity NL (MW AC)', 'Market value Onshore Wind (EUR/MW/year)', 'Day-Ahead average price (EUR/MWh)', 'Onshore Wind Capture price (EUR/MWh)', 'Onshore Wind Capture rate (%)'],
         font=dict(size=10),
         align='left'
     ),
@@ -617,13 +627,13 @@ table_fig = go.Figure(data=[go.Table(
 )])
 
 table_fig.update_layout(
-    title_text='Monthly Summary Table (Analysis on Wind value (NL), EPEX spot prices + Wind production of NED.nl) - Data up to September 2025',
+    title_text='Monthly Summary Table — Onshore Wind NL (EPEX spot prices + NED.nl Onshore Wind production)',
     margin=dict(l=0, r=0, t=50, b=0)
 )
 
 # Write both figures to separate files
-table_fig.write_html('wind_monthly_summary_table.html', auto_open=True)
-fig.write_html('wind_production_plot_v3.html', auto_open=True)
+table_fig.write_html('wind_onshore_monthly_summary_table.html', auto_open=True)
+fig.write_html('wind_onshore_production_plot_v3.html', auto_open=True)
 
 
 
