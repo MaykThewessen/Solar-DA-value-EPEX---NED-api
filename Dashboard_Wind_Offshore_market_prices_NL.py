@@ -30,6 +30,11 @@ print(f"Date range: {df_combined['time'].min()} to {df_combined['time'].max()}")
 
 df_combined['Wind_value'] = df_combined['Wind_production_MWh'] * df_combined['DA_price']
 
+# Per-row interval in hours (handles hourly vs quarterly data automatically)
+df_combined = df_combined.sort_values('time').reset_index(drop=True)
+df_combined['_dt_h'] = df_combined['time'].diff().dt.total_seconds().div(3600)
+df_combined['_dt_h'] = df_combined['_dt_h'].bfill().fillna(1.0)
+
 
 # Create installed capacity column in MW using a linear fit (extrapolation allowed)
 from datetime import datetime
@@ -162,10 +167,42 @@ monthly_summary['Wind_Weighted_Price'] = round(monthly_summary.apply(
 monthly_summary['profile_factor'] = round((monthly_summary['Wind_Weighted_Price'] / monthly_summary['Avg_DA_Price'])*100, 1)
 monthly_summary['Installed_Capacity_MW_AC'] = round(monthly_summary['installed_capacity_MW'], 0)
 
+# Excluding-negative-price metrics per month
+_pos = df_combined[df_combined['DA_price'] >= 0].copy()
+_pos['_pv'] = _pos['Wind_production_MWh'] * _pos['DA_price']
+_pos_monthly = _pos.groupby('month').agg(
+    Wind_production_MWh_pos=('Wind_production_MWh', 'sum'),
+    Wind_value_pos=('Wind_value', 'sum'),
+    Avg_DA_Price_pos=('DA_price', 'mean'),
+    _pv_sum=('_pv', 'sum'),
+).reset_index()
+_pos_monthly['Wind_Weighted_Price_excl_neg'] = (
+    _pos_monthly['_pv_sum'] / _pos_monthly['Wind_production_MWh_pos'].replace(0, np.nan)
+)
+monthly_summary = monthly_summary.merge(_pos_monthly, on='month', how='left')
+monthly_summary['MWh_per_MW_excl_neg'] = (
+    monthly_summary['Wind_production_MWh_pos'] / monthly_summary['installed_capacity_MW']
+)
+monthly_summary['Value_per_MW_AC_EUR_excl_neg'] = (
+    monthly_summary['Wind_value_pos'] / monthly_summary['installed_capacity_MW']
+)
+monthly_summary['profile_factor_excl_neg'] = (
+    monthly_summary['Wind_Weighted_Price_excl_neg'] / monthly_summary['Avg_DA_Price_pos']
+) * 100
+monthly_summary['curtailment_pct'] = (
+    (monthly_summary['Total_Wind_Energy_GWh'] * 1000 - monthly_summary['Wind_production_MWh_pos'])
+    / (monthly_summary['Total_Wind_Energy_GWh'] * 1000)
+) * 100
+_neg_monthly = df_combined[df_combined['DA_price'] < 0].groupby('month')['_dt_h'].sum().round(0).reset_index().rename(columns={'_dt_h': 'neg_hours'})
+monthly_summary = monthly_summary.merge(_neg_monthly, on='month', how='left')
+monthly_summary['neg_hours'] = monthly_summary['neg_hours'].fillna(0)
+
 # Reorder columns to match expected format
-monthly_summary = monthly_summary[['month', 'Wind_production_MWh', 'Wind_value', 'installed_capacity_MW', 
-                                   'DA_price', 'Total_Wind_Energy_GWh', 'Value_per_MW_AC_EUR', 
-                                   'Avg_DA_Price', 'Wind_Weighted_Price', 'profile_factor', 'Installed_Capacity_MW_AC']]
+monthly_summary = monthly_summary[['month', 'Wind_production_MWh', 'Wind_value', 'installed_capacity_MW',
+                                   'DA_price', 'Total_Wind_Energy_GWh', 'Value_per_MW_AC_EUR',
+                                   'Avg_DA_Price', 'Wind_Weighted_Price', 'profile_factor', 'Installed_Capacity_MW_AC',
+                                   'MWh_per_MW_excl_neg', 'Value_per_MW_AC_EUR_excl_neg',
+                                   'Wind_Weighted_Price_excl_neg', 'profile_factor_excl_neg', 'curtailment_pct', 'neg_hours']]
 
 print("\nMonthly Summary:")
 # Round first 3 columns to 0 digits
@@ -265,16 +302,56 @@ yearly_avg_prices.columns = ['year', 'Yearly_Avg_DA_Price']
 yearly_totals = yearly_totals.merge(yearly_avg_prices, on='year')
 yearly_totals['Yearly_Profile_Factor'] = (yearly_totals['Yearly_Wind_Weighted_Price'] / yearly_totals['Yearly_Avg_DA_Price']) * 100
 
+# --- Metrics excluding negative-price hours ---
+df_pos = df_combined[df_combined['DA_price'] >= 0].copy()
+yearly_pos = df_pos.groupby(df_pos['time'].dt.year).agg(
+    Wind_production_MWh_pos=('Wind_production_MWh', 'sum'),
+    Wind_value_pos=('Wind_value', 'sum'),
+    Avg_DA_Price_pos=('DA_price', 'mean'),
+).reset_index().rename(columns={'time': 'year'})
+yearly_pos['Yearly_Wind_Weighted_Price_excl_neg'] = (
+    df_pos.assign(_pv=df_pos['Wind_production_MWh'] * df_pos['DA_price'])
+          .groupby(df_pos['time'].dt.year)['_pv'].sum().values
+    / yearly_pos['Wind_production_MWh_pos'].replace(0, np.nan).values
+)
+yearly_totals = yearly_totals.merge(yearly_pos, on='year', how='left')
+yearly_totals['Yearly_MWh_per_MW_excl_neg'] = (
+    yearly_totals['Wind_production_MWh_pos'] / yearly_totals['Yearly_Installed_Capacity_MW']
+)
+yearly_totals['Yearly_Value_per_MW_AC_EUR_excl_neg'] = (
+    yearly_totals['Wind_value_pos'] / yearly_totals['Yearly_Installed_Capacity_MW']
+)
+yearly_totals['Yearly_Profile_Factor_excl_neg'] = (
+    yearly_totals['Yearly_Wind_Weighted_Price_excl_neg'] / yearly_totals['Avg_DA_Price_pos']
+) * 100
+yearly_totals['Yearly_Curtailment_Pct'] = (
+    (yearly_totals['Yearly_Wind_Energy_MWh'] - yearly_totals['Wind_production_MWh_pos'])
+    / yearly_totals['Yearly_Wind_Energy_MWh']
+) * 100
+df_neg = df_combined[df_combined['DA_price'] < 0].copy()
+yearly_neg_hours = df_neg.groupby(df_neg['time'].dt.year)['_dt_h'].sum().round(0).reset_index().rename(columns={'time': 'year', '_dt_h': 'Yearly_Neg_Hours'})
+yearly_totals = yearly_totals.merge(yearly_neg_hours, on='year', how='left')
+yearly_totals['Yearly_Neg_Hours'] = yearly_totals['Yearly_Neg_Hours'].fillna(0)
+
 # Add yearly data to monthly dataframe
 monthly = monthly.merge(yearly_totals[['year', 'Yearly_Wind_Energy_MWh', 'Yearly_Value_per_MW_AC_EUR', 'Yearly_Wind_Weighted_Price', 'Yearly_Profile_Factor']], on='year')
 
 # Prepare yearly summary data for table
 yearly_summary_for_table = yearly_totals.copy()
 yearly_summary_for_table['Yearly_Wind_Energy_GWh'] = yearly_summary_for_table['Yearly_Wind_Energy_MWh'] / 1000
+yearly_summary_for_table['Yearly_Wind_Energy_TWh'] = yearly_summary_for_table['Yearly_Wind_Energy_MWh'] / 1_000_000
 yearly_summary_for_table['Yearly_Installed_Capacity_MW_AC'] = yearly_summary_for_table['Yearly_Installed_Capacity_MW']
+yearly_summary_for_table['Yearly_Installed_Capacity_GW_AC'] = yearly_summary_for_table['Yearly_Installed_Capacity_MW'] / 1000
 # Calculate MWh/MW installed produced
 yearly_summary_for_table['Yearly_MWh_per_MW'] = yearly_summary_for_table['Yearly_Wind_Energy_MWh'] / (yearly_summary_for_table['Yearly_Installed_Capacity_MW_AC'] )
 yearly_summary_for_table = yearly_summary_for_table.round(1)
+
+# Mark incomplete years with " *" (preliminary)
+_last_time = df_combined['time'].max()
+_last_complete_year = _last_time.year if (_last_time.month == 12 and _last_time.day >= 31) else _last_time.year - 1
+yearly_summary_for_table['year_label'] = yearly_summary_for_table['year'].apply(
+    lambda y: f"{int(y)} *" if y > _last_complete_year else str(int(y))
+)
 
 # Helper functions for formatting
 def format_number(x):
@@ -300,8 +377,8 @@ fig = make_subplots(
         'Installed Offshore Wind Capacity NL',
         'Yield normalized per installed capacity',
         'Market Value per installed capacity',
-        'Capture Rate Offshore Wind (%)',
-        'Offshore Wind Capture Price (€/MWh)',
+        'Offshore wind capture rate (%)',
+        'Offshore wind capture price (€/MWh)',
         ' '
     ),
     specs=[
@@ -322,20 +399,26 @@ fig = make_subplots(
 fig.add_trace(
     go.Table(
         header=dict(
-            values=['Year', 'Offshore Wind Energy produced (GWh/y)', 'Installed Offshore Wind Capacity in NL (MW) mid-year', 'MWh yield / MW installed', 'Annual Market value (EUR/MW/y)', 'Day-Ahead linear avg price (EUR/MWh)', 'Offshore Wind Capture price (EUR/MWh)', 'Capture rate of Offshore Wind (%)'],
+            values=['Year (* = preliminary)', 'Installed Offshore Wind Capacity in NL (GW) mid-year', 'Offshore Wind Energy produced (TWh/y) (NED.nl)', 'MWh yield / MW installed', 'MWh yield / MW (excl. neg)', 'Curtailment (%)', 'Negative-price hours (h/y)', 'Annual Market value (EUR/MW/y)', 'Market value EUR/MW/y (excl. neg)', 'Day-Ahead linear avg price (EUR/MWh)', 'Offshore wind capture price (€/MWh)', 'Offshore wind capture price (€/MWh) excl. neg', 'Offshore wind capture rate (%)', 'Offshore wind capture rate (%) excl. neg'],
             font=dict(size=10),
             align='left'
         ),
         cells=dict(
             values=[
-                [str(year) for year in yearly_summary_for_table['year'][::-1]],
-                [format_number(x) for x in yearly_summary_for_table['Yearly_Wind_Energy_GWh'][::-1]],
-                [format_mwp(x) for x in yearly_summary_for_table['Yearly_Installed_Capacity_MW_AC'][::-1]],
+                yearly_summary_for_table['year_label'][::-1].tolist(),
+                [f"{x:.2f}" if pd.notna(x) else '' for x in yearly_summary_for_table['Yearly_Installed_Capacity_GW_AC'][::-1]],
+                [f"{x:.1f}" if pd.notna(x) else '' for x in yearly_summary_for_table['Yearly_Wind_Energy_TWh'][::-1]],
                 [format_number(x) for x in yearly_summary_for_table['Yearly_MWh_per_MW'][::-1]],
+                [format_number(x) for x in yearly_summary_for_table['Yearly_MWh_per_MW_excl_neg'][::-1]],
+                [format_percentage(x) for x in yearly_summary_for_table['Yearly_Curtailment_Pct'][::-1]],
+                [format_number(x) for x in yearly_summary_for_table['Yearly_Neg_Hours'][::-1]],
                 [format_number(x) for x in yearly_summary_for_table['Yearly_Value_per_MW_AC_EUR'][::-1]],
+                [format_number(x) for x in yearly_summary_for_table['Yearly_Value_per_MW_AC_EUR_excl_neg'][::-1]],
                 [format_number(x) for x in yearly_summary_for_table['Yearly_Avg_DA_Price'][::-1]],
                 [format_number(x) for x in yearly_summary_for_table['Yearly_Wind_Weighted_Price'][::-1]],
-                [format_percentage(x) for x in yearly_summary_for_table['Yearly_Profile_Factor'][::-1]]
+                [format_number(x) for x in yearly_summary_for_table['Yearly_Wind_Weighted_Price_excl_neg'][::-1]],
+                [format_percentage(x) for x in yearly_summary_for_table['Yearly_Profile_Factor'][::-1]],
+                [format_percentage(x) for x in yearly_summary_for_table['Yearly_Profile_Factor_excl_neg'][::-1]]
             ],
             font=dict(size=9),
             align='left',
@@ -524,7 +607,7 @@ for year in sorted(monthly['year'].unique()):
         row=5, col=1, secondary_y=False
     )
 
-fig.update_yaxes(title_text='Capture rate (%)', row=5, col=1, range=[0, 100])
+fig.update_yaxes(title_text='Offshore wind capture rate (%)', row=5, col=1, range=[0, 100])
 fig.update_xaxes(title_text='', row=5, col=1, tickmode='array', tickvals=list(range(1, 13)), ticktext=['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], range=[0.5, 12.5])
 
 # Sixth subplot: Wind Capture Price (volume-weighted DA price for wind, €/MWh)
@@ -549,7 +632,7 @@ for year in sorted(monthly['year'].unique()):
         ),
         row=6, col=1, secondary_y=False
     )
-fig.update_yaxes(title_text='Capture Price (€/MWh)', row=6, col=1)
+fig.update_yaxes(title_text='Offshore wind capture price (€/MWh)', row=6, col=1)
 fig.update_xaxes(title_text='', row=6, col=1, tickmode='array', tickvals=list(range(1, 13)), ticktext=['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'], range=[0.5, 12.5])
 
 # Update layout with individual legends for each subplot
@@ -560,7 +643,7 @@ fig.update_xaxes(title_text='', row=6, col=1, tickmode='array', tickvals=list(ra
 
 # Add individual legends for each subplot
 fig.update_layout(
-    height=1400,  # Six chart rows + summary table
+    height=1800,  # Six chart rows + summary table
     legend=dict(
         x=1.02,
         y=1,
@@ -599,19 +682,25 @@ monthly_summary_rounded_reversed = monthly_summary_rounded.sort_values('month', 
 
 table_fig = go.Figure(data=[go.Table(
     header=dict(
-        values=['Month', 'Offshore Wind Energy produced (GWh/month)', 'Offshore Wind generation capacity NL (MW AC)', 'Market value Offshore Wind (EUR/MW/year)', 'Day-Ahead average price (EUR/MWh)', 'Offshore Wind Capture price (EUR/MWh)', 'Offshore Wind Capture rate (%)'],
+        values=['Month', 'Offshore Wind generation capacity NL (GW AC)', 'Offshore Wind Energy produced (GWh/month) (NED.nl)', 'MWh yield / MW (excl. neg)', 'Curtailment (%)', 'Negative-price hours (h)', 'Market value Offshore Wind (EUR/MW/year)', 'Market value EUR/MW/y (excl. neg)', 'Day-Ahead average price (EUR/MWh)', 'Offshore wind capture price (€/MWh)', 'Offshore wind capture price (€/MWh) excl. neg', 'Offshore wind capture rate (%)', 'Offshore wind capture rate (%) excl. neg'],
         font=dict(size=10),
         align='left'
     ),
             cells=dict(
             values=[
                 monthly_summary_rounded_reversed['month'].astype(str),
-                [format_number(x) for x in monthly_summary_rounded_reversed.iloc[:, 5]],  # Total_Wind_Energy_GWh
-                [format_mwp(x) for x in monthly_summary_rounded_reversed.iloc[:, 10]],   # Installed_Capacity_MW_AC
-                [format_number(x) for x in monthly_summary_rounded_reversed.iloc[:, 6]],  # Value_per_MW_AC_EUR
-                [format_number(x) for x in monthly_summary_rounded_reversed.iloc[:, 7]],  # Avg_DA_Price
-                [format_number(x) for x in monthly_summary_rounded_reversed.iloc[:, 8]],  # Wind_Weighted_Price
-                [format_percentage(x) for x in monthly_summary_rounded_reversed.iloc[:, 9]]  # profile_factor
+                [f"{x/1000:.2f}" if pd.notna(x) else '' for x in monthly_summary_rounded_reversed['Installed_Capacity_MW_AC']],
+                [format_number(x) for x in monthly_summary_rounded_reversed['Total_Wind_Energy_GWh']],
+                [format_number(x) for x in monthly_summary_rounded_reversed['MWh_per_MW_excl_neg'].round(0)],
+                [format_percentage(x) for x in monthly_summary_rounded_reversed['curtailment_pct']],
+                [format_number(x) for x in monthly_summary_rounded_reversed['neg_hours']],
+                [format_number(x) for x in monthly_summary_rounded_reversed['Value_per_MW_AC_EUR']],
+                [format_number(x) for x in monthly_summary_rounded_reversed['Value_per_MW_AC_EUR_excl_neg'].round(0)],
+                [format_number(x) for x in monthly_summary_rounded_reversed['Avg_DA_Price']],
+                [format_number(x) for x in monthly_summary_rounded_reversed['Wind_Weighted_Price']],
+                [format_number(x) for x in monthly_summary_rounded_reversed['Wind_Weighted_Price_excl_neg'].round(0)],
+                [format_percentage(x) for x in monthly_summary_rounded_reversed['profile_factor']],
+                [format_percentage(x) for x in monthly_summary_rounded_reversed['profile_factor_excl_neg']]
             ],
         font=dict(size=9),
         align='left',
