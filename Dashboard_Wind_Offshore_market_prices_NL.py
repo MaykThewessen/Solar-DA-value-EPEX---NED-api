@@ -33,7 +33,7 @@ df_combined['Wind_value'] = df_combined['Wind_production_MWh'] * df_combined['DA
 # Per-row interval in hours (handles hourly vs quarterly data automatically)
 df_combined = df_combined.sort_values('time').reset_index(drop=True)
 df_combined['_dt_h'] = df_combined['time'].diff().dt.total_seconds().div(3600)
-df_combined['_dt_h'] = df_combined['_dt_h'].bfill().fillna(1.0)
+df_combined['_dt_h'] = df_combined['_dt_h'].fillna(df_combined['_dt_h'].median())  # first-row NaN -> series median, not bfill
 
 
 # Create installed capacity column in MW using a linear fit (extrapolation allowed)
@@ -190,8 +190,8 @@ monthly_summary['profile_factor_excl_neg'] = (
     monthly_summary['Wind_Weighted_Price_excl_neg'] / monthly_summary['Avg_DA_Price_pos']
 ) * 100
 monthly_summary['curtailment_pct'] = (
-    (monthly_summary['Total_Wind_Energy_GWh'] * 1000 - monthly_summary['Wind_production_MWh_pos'])
-    / (monthly_summary['Total_Wind_Energy_GWh'] * 1000)
+    (monthly_summary['Wind_production_MWh'] - monthly_summary['Wind_production_MWh_pos'])
+    / monthly_summary['Wind_production_MWh'].replace(0, np.nan)
 ) * 100
 _neg_monthly = df_combined[df_combined['DA_price'] < 0].groupby('month')['_dt_h'].sum().round(0).reset_index().rename(columns={'_dt_h': 'neg_hours'})
 monthly_summary = monthly_summary.merge(_neg_monthly, on='month', how='left')
@@ -714,9 +714,165 @@ table_fig.update_layout(
 )
 
 # Write both figures to separate files
-table_fig.write_html('wind_offshore_monthly_summary_table.html', auto_open=True)
-fig.write_html('wind_offshore_production_plot_v3.html', auto_open=True)
+table_fig.write_html('wind_offshore_monthly_summary_table.html', auto_open=False)
+fig.write_html('wind_offshore_production_plot_v3.html', auto_open=False)
 
 
 
 
+
+
+# --- Claude-themed multi-page PDF (uses dashboard_common shared module) ---
+from dashboard_common import (
+    CLAUDE_PALETTE,
+    build_themed_slide_fig,
+    build_monthly_metric_by_year_fig,
+    build_yearly_summary_table_fig,
+    render_slides_to_pdf,
+    utc_today_str,
+)
+
+yst = yearly_summary_for_table.sort_values('year').reset_index(drop=True)
+_years_full = yst['year_label'].tolist()
+_years_for_data = yst['year'].tolist()
+_brand = 'WIND OFFSHORE · NL'
+_source_date = utc_today_str()
+
+_yrs_set = set(yst['year'].tolist())
+_callout_value = []
+if 2022 in _yrs_set:
+    _v22 = float(yst.loc[yst['year'] == 2022, 'Yearly_Value_per_MW_AC_EUR'].iloc[0])
+    _v22x = float(yst.loc[yst['year'] == 2022, 'Yearly_Value_per_MW_AC_EUR_excl_neg'].iloc[0])
+    _callout_value = [dict(
+        x='2022', y=460000,
+        body=f"<b>2022 spike</b><br>incl. neg: €{_v22:,.0f}/MW<br>excl. neg: €{_v22x:,.0f}/MW".replace(',', '.'),
+    )]
+_callout_price = []
+if 2022 in _yrs_set:
+    _p22 = float(yst.loc[yst['year'] == 2022, 'Yearly_Wind_Weighted_Price'].iloc[0])
+    _p22x = float(yst.loc[yst['year'] == 2022, 'Yearly_Wind_Weighted_Price_excl_neg'].iloc[0])
+    _da22 = float(yst.loc[yst['year'] == 2022, 'Yearly_Avg_DA_Price'].iloc[0])
+    _callout_price = [dict(
+        x='2022', y=235,
+        body=f"<b>2022 spike</b><br>Capture incl. neg: €{_p22:.0f}/MWh<br>Capture excl. neg: €{_p22x:.0f}/MWh<br>DA avg: €{_da22:.0f}/MWh",
+    )]
+
+_pdf_slides = [
+    dict(
+        title='Installed Offshore Wind Capacity', subtitle='Netherlands · year-end GW AC (Birdview Central scenario)',
+        ytitle='GW (AC)', kind='area_gradient',
+        traces=[(yst['Yearly_Installed_Capacity_GW_AC'], 'Installed capacity', CLAUDE_PALETTE['accent'])],
+        mask_partial=False,
+    ),
+    dict(
+        title='Offshore Wind Energy Produced', subtitle='Annual generation in TWh · complete years only · NED.nl',
+        ytitle='TWh / year', kind='bar_gradient',
+        traces=[(yst['Yearly_Wind_Energy_TWh'], 'Wind energy', CLAUDE_PALETTE['accent'])],
+        mask_partial=True,
+    ),
+    dict(
+        title='Specific Yield', subtitle='MWh produced per MW installed · with & without negative-price hours',
+        ytitle='MWh / MW', kind='dual_area',
+        traces=[
+            (yst['Yearly_MWh_per_MW'], 'incl. neg-price hours', CLAUDE_PALETTE['blue']),
+            (yst['Yearly_MWh_per_MW_excl_neg'], 'excl. neg-price hours', CLAUDE_PALETTE['sage']),
+        ],
+        mask_partial=True,
+    ),
+    dict(
+        title='Curtailment Share', subtitle='Share of wind MWh produced during DA < 0 €/MWh hours',
+        ytitle='% of yearly MWh', kind='bar_gradient',
+        traces=[(yst['Yearly_Curtailment_Pct'], 'Curtailment', CLAUDE_PALETTE['accent'])],
+        mask_partial=True,
+    ),
+    dict(
+        title='Negative-Price Hours', subtitle='Hours per year with Day-Ahead price < 0 €/MWh',
+        ytitle='Hours / year', kind='bar_gradient',
+        traces=[(yst['Yearly_Neg_Hours'], 'Negative-price hours', CLAUDE_PALETTE['sage'])],
+        mask_partial=True,
+    ),
+    dict(
+        title='Annual Market Value per MW',
+        subtitle='Revenue per installed MW AC · with & without neg-price hours',
+        ytitle='€ / MW / year', kind='dual_area',
+        traces=[
+            (yst['Yearly_Value_per_MW_AC_EUR'], 'incl. neg-price hours', CLAUDE_PALETTE['blue']),
+            (yst['Yearly_Value_per_MW_AC_EUR_excl_neg'], 'excl. neg-price hours', CLAUDE_PALETTE['sage']),
+        ],
+        mask_partial=False,
+        yaxis_range=(0, 500000), yaxis_tickformat=',.0f', use_eu_thousands=True,
+        callouts=_callout_value,
+    ),
+    dict(
+        title='Capture Price vs Day-Ahead Average',
+        subtitle='Volume-weighted offshore-wind price compared with flat Day-Ahead average',
+        ytitle='€ / MWh', kind='triple_line',
+        traces=[
+            (yst['Yearly_Wind_Weighted_Price'], 'Capture price (incl. neg)', CLAUDE_PALETTE['blue']),
+            (yst['Yearly_Wind_Weighted_Price_excl_neg'], 'Capture price (excl. neg)', CLAUDE_PALETTE['sage']),
+            (yst['Yearly_Avg_DA_Price'], 'Day-Ahead average', CLAUDE_PALETTE['muted']),
+        ],
+        mask_partial=False, yaxis_range=(0, 250),
+        callouts=_callout_price,
+    ),
+    dict(
+        title='Offshore Wind Capture Rate',
+        subtitle='Capture price as % of Day-Ahead average · with & without neg-price hours',
+        ytitle='%', kind='dual_area',
+        traces=[
+            (yst['Yearly_Profile_Factor'], 'incl. neg-price hours', CLAUDE_PALETTE['blue']),
+            (yst['Yearly_Profile_Factor_excl_neg'], 'excl. neg-price hours', CLAUDE_PALETTE['sage']),
+        ],
+        mask_partial=False, legend_position='right',
+    ),
+]
+
+_slide_pages = [
+    dict(shape='slide', fig=build_themed_slide_fig(s, _years_full, _years_for_data,
+                                                   int(_last_complete_year),
+                                                   _brand, _source_date))
+    for s in _pdf_slides
+]
+
+_monthly_fig = build_monthly_metric_by_year_fig(
+    monthly_summary, value_col='profile_factor',
+    years_to_plot=(2023, 2024, 2025),
+    title='Monthly Offshore Wind Capture Rate',
+    subtitle='Netherlands · capture price ÷ Day-Ahead average · by year',
+    ytitle='%', brand=_brand, source_date=_source_date,
+    tick_suffix='%',
+)
+_slide_pages.append(dict(shape='slide', fig=_monthly_fig))
+
+_table_columns = [
+    dict(col='year_label', header='Year<br><span style="font-size:10px;color:#8C8377">(* preliminary)</span>', width=60),
+    dict(col='Yearly_Installed_Capacity_GW_AC', fmt='{:,.1f}',
+         header='Installed Wind<br>capacity (GW)<br><span style="font-size:10px;color:#8C8377">avg</span>', width=80),
+    dict(col='Yearly_Wind_Energy_TWh', fmt='{:,.1f}',
+         header='Wind energy<br>(TWh/y)<br><span style="font-size:10px;color:#8C8377">NED.nl</span>', width=70),
+    dict(col='Yearly_MWh_per_MW', fmt='{:,.0f}', header='MWh / MW<br>installed', width=70),
+    dict(col='Yearly_MWh_per_MW_excl_neg', fmt='{:,.0f}',
+         header='MWh / MW<br><span style="font-size:10px;color:#8C8377">excl. neg</span>', width=75),
+    dict(col='Yearly_Curtailment_Pct', fmt='{:.0f}%', header='Curtailment<br>(%)', width=65),
+    dict(col='Yearly_Neg_Hours', fmt='{:,.0f}', header='Neg-price<br>hours (h/y)', width=70),
+    dict(col='Yearly_Value_per_MW_AC_EUR', fmt='{:,.0f}', header='Market value<br>(€/MW/y)', width=80),
+    dict(col='Yearly_Value_per_MW_AC_EUR_excl_neg', fmt='{:,.0f}',
+         header='Market value<br>(€/MW/y)<br><span style="font-size:10px;color:#8C8377">excl. neg</span>', width=85),
+    dict(col='Yearly_Avg_DA_Price', fmt='{:,.0f}', header='DA avg price<br>(€/MWh)', width=75),
+    dict(col='Yearly_Wind_Weighted_Price', fmt='{:,.0f}', header='Capture price<br>(€/MWh)', width=75),
+    dict(col='Yearly_Wind_Weighted_Price_excl_neg', fmt='{:,.0f}',
+         header='Capture price<br>(€/MWh)<br><span style="font-size:10px;color:#8C8377">excl. neg</span>', width=80),
+    dict(col='Yearly_Profile_Factor', fmt='{:.0f}%', header='Capture rate<br>(%)', width=70),
+    dict(col='Yearly_Profile_Factor_excl_neg', fmt='{:.0f}%',
+         header='Capture rate<br>(%)<br><span style="font-size:10px;color:#8C8377">excl. neg</span>', width=80),
+]
+_table_fig = build_yearly_summary_table_fig(
+    yst, _table_columns, brand=_brand,
+    title='Yearly Offshore Wind Market Summary',
+    subtitle='Netherlands · Day-Ahead market · all metrics, with & without negative-price hours',
+    source_date=_source_date,
+)
+_slide_pages.append(dict(shape='table', fig=_table_fig))
+
+render_slides_to_pdf(_slide_pages, 'wind_offshore_yearly_slides.pdf')
+print('PDF written: wind_offshore_yearly_slides.pdf')
