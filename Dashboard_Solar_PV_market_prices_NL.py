@@ -163,13 +163,10 @@ monthly['Monthly_Value_per_MWp_DC_EUR'] = round(monthly['Solar_value'] / monthly
 monthly['Monthly_Installed_Capacity_MW'] = monthly['installed_capacity_MW']
 monthly['Monthly_Avg_DA_Price'] = monthly['DA_price']
 
-# Calculate PV weighted price for each month
-monthly['Monthly_PV_Power_Weighted_DA_Price'] = monthly.apply(
-    lambda row: (df_combined[df_combined['month_date'] == row['month_date']]['Solar_production_MWh'] * 
-                 df_combined[df_combined['month_date'] == row['month_date']]['DA_price']).sum() / 
-                df_combined[df_combined['month_date'] == row['month_date']]['Solar_production_MWh'].sum() 
-                if df_combined[df_combined['month_date'] == row['month_date']]['Solar_production_MWh'].sum() > 0 else float('nan'), axis=1
-)
+# Calculate PV weighted price for each month (vectorised; replaces O(n*m) .apply(lambda))
+from dashboard_common import vw_price_groupby as _vw
+monthly['Monthly_PV_Power_Weighted_DA_Price'] = monthly['month_date'].map(
+    _vw(df_combined, 'month_date', 'Solar_production_MWh', 'DA_price'))
 
 # Select and reorder columns
 monthly = monthly[['month_date', 'Monthly_PV_Energy_MWh', 'Monthly_Value_per_MWp_DC_EUR', 'Monthly_PV_Power_Weighted_DA_Price', 'Monthly_Installed_Capacity_MW', 'Monthly_Avg_DA_Price']]
@@ -215,13 +212,9 @@ monthly_summary['Total_PV_Energy_GWh'] = round(monthly_summary['Solar_production
 monthly_summary['Value_per_MWp_DC_EUR'] = round(monthly_summary['Solar_value'] / monthly_summary['installed_capacity_MW'], 1)
 monthly_summary['Avg_DA_Price'] = round(monthly_summary['DA_price'], 1)
 
-# Recalculate PV weighted price for each month
-monthly_summary['PV_Weighted_Price'] = monthly_summary.apply(
-    lambda row: (df_combined[df_combined['month'] == row['month']]['Solar_production_MWh'] * 
-                 df_combined[df_combined['month'] == row['month']]['DA_price']).sum() / 
-                df_combined[df_combined['month'] == row['month']]['Solar_production_MWh'].sum() 
-                if df_combined[df_combined['month'] == row['month']]['Solar_production_MWh'].sum() > 0 else float('nan'), axis=1
-)
+# Recalculate PV weighted price for each month (vectorised)
+monthly_summary['PV_Weighted_Price'] = monthly_summary['month'].map(
+    _vw(df_combined, 'month', 'Solar_production_MWh', 'DA_price'))
 
 monthly_summary['profile_factor'] = round((monthly_summary['PV_Weighted_Price'] / monthly_summary['Avg_DA_Price'])*100, 1)
 monthly_summary['Installed_Capacity_GWp_DC'] = round(monthly_summary['installed_capacity_MW'] / 1000, 2)
@@ -301,13 +294,11 @@ yearly_weighted_prices = df_combined.groupby(df_combined['time'].dt.year).agg({
     'DA_price': 'mean'
 }).reset_index()
 
-# Calculate weighted price manually
-yearly_weighted_prices['Yearly_PV_Weighted_Price'] = yearly_weighted_prices.apply(
-    lambda row: (df_combined[df_combined['time'].dt.year == row['time']]['Solar_production_MWh'] * 
-                 df_combined[df_combined['time'].dt.year == row['time']]['DA_price']).sum() / 
-                df_combined[df_combined['time'].dt.year == row['time']]['Solar_production_MWh'].sum() 
-                if df_combined[df_combined['time'].dt.year == row['time']]['Solar_production_MWh'].sum() > 0 else float('nan'), axis=1
-)
+# Calculate weighted price (vectorised)
+if 'year' not in df_combined.columns:
+    df_combined['year'] = df_combined['time'].dt.year
+yearly_weighted_prices['Yearly_PV_Weighted_Price'] = yearly_weighted_prices['time'].map(
+    _vw(df_combined, 'year', 'Solar_production_MWh', 'DA_price'))
 
 yearly_weighted_prices = yearly_weighted_prices.rename(columns={'time': 'year'})
 yearly_weighted_prices = yearly_weighted_prices[['year', 'Yearly_PV_Weighted_Price']]

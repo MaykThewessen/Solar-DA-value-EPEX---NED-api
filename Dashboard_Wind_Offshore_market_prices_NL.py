@@ -156,13 +156,10 @@ monthly_summary['Total_Wind_Energy_GWh'] = round(monthly_summary['Wind_productio
 monthly_summary['Value_per_MW_AC_EUR'] = round(monthly_summary['Wind_value'] / monthly_summary['installed_capacity_MW'], 0)
 monthly_summary['Avg_DA_Price'] = round(monthly_summary['DA_price'], 1)
 
-# Calculate Wind weighted price for each month
-monthly_summary['Wind_Weighted_Price'] = round(monthly_summary.apply(
-    lambda row: (df_combined[df_combined['month'] == row['month']]['Wind_production_MWh'] * 
-                 df_combined[df_combined['month'] == row['month']]['DA_price']).sum() / 
-                df_combined[df_combined['month'] == row['month']]['Wind_production_MWh'].sum() 
-                if df_combined[df_combined['month'] == row['month']]['Wind_production_MWh'].sum() > 0 else float('nan'), axis=1
-), 1)
+# Calculate Wind weighted price for each month (vectorised)
+from dashboard_common import vw_price_groupby as _vw
+monthly_summary['Wind_Weighted_Price'] = monthly_summary['month'].map(
+    _vw(df_combined, 'month', 'Wind_production_MWh', 'DA_price')).round(1)
 
 monthly_summary['profile_factor'] = round((monthly_summary['Wind_Weighted_Price'] / monthly_summary['Avg_DA_Price'])*100, 1)
 monthly_summary['Installed_Capacity_MW_AC'] = round(monthly_summary['installed_capacity_MW'], 0)
@@ -241,13 +238,9 @@ monthly['Monthly_Installed_Capacity_MW'] = monthly['installed_capacity_MW']
 monthly['Monthly_Avg_DA_Price'] = round(monthly['DA_price'], 1)
 
 
-# Calculate Wind weighted price for each month
-monthly['Monthly_Wind_Power_Weighted_DA_Price'] = monthly.apply(
-    lambda row: (df_combined[df_combined['month_date'] == row['month_date']]['Wind_production_MWh'] * 
-                 df_combined[df_combined['month_date'] == row['month_date']]['DA_price']).sum() / 
-                df_combined[df_combined['month_date'] == row['month_date']]['Wind_production_MWh'].sum() 
-                if df_combined[df_combined['month_date'] == row['month_date']]['Wind_production_MWh'].sum() > 0 else float('nan'), axis=1
-)
+# Calculate Wind weighted price for each month (vectorised)
+monthly['Monthly_Wind_Power_Weighted_DA_Price'] = monthly['month_date'].map(
+    _vw(df_combined, 'month_date', 'Wind_production_MWh', 'DA_price'))
 
 # Calculate profile factor
 monthly['Monthly_Profile_Factor'] = (monthly['Monthly_Wind_Power_Weighted_DA_Price'] / monthly['Monthly_Avg_DA_Price']) * 100
@@ -282,13 +275,11 @@ yearly_weighted_prices = df_combined.groupby(df_combined['time'].dt.year).agg({
     'DA_price': 'mean'
 }).reset_index()
 
-# Calculate weighted price manually
-yearly_weighted_prices['Yearly_Wind_Weighted_Price'] = yearly_weighted_prices.apply(
-    lambda row: (df_combined[df_combined['time'].dt.year == row['time']]['Wind_production_MWh'] * 
-                 df_combined[df_combined['time'].dt.year == row['time']]['DA_price']).sum() / 
-                df_combined[df_combined['time'].dt.year == row['time']]['Wind_production_MWh'].sum() 
-                if df_combined[df_combined['time'].dt.year == row['time']]['Wind_production_MWh'].sum() > 0 else float('nan'), axis=1
-)
+# Calculate weighted price (vectorised)
+if 'year' not in df_combined.columns:
+    df_combined['year'] = df_combined['time'].dt.year
+yearly_weighted_prices['Yearly_Wind_Weighted_Price'] = yearly_weighted_prices['time'].map(
+    _vw(df_combined, 'year', 'Wind_production_MWh', 'DA_price'))
 
 yearly_weighted_prices = yearly_weighted_prices.rename(columns={'time': 'year'})
 yearly_weighted_prices = yearly_weighted_prices[['year', 'Yearly_Wind_Weighted_Price']]
