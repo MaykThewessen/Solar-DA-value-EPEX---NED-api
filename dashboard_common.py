@@ -143,7 +143,7 @@ def vw_price_groupby(df: pd.DataFrame, group_col: str,
     """Vectorised volume-weighted price = sum(prod*price) / sum(prod). Replaces per-row .apply(lambda)."""
     num = (df[prod_col] * df[price_col]).groupby(df[group_col]).sum()
     den = df[prod_col].groupby(df[group_col]).sum()
-    out = num / den.replace(0, np.nan)
+    out = num / den.where(den > 0)  # non-positive production -> NaN (matches old `sum > 0` guard)
     return out
 
 
