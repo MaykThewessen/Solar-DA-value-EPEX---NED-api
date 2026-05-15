@@ -75,36 +75,47 @@ def hex_to_rgb(h: str) -> tuple[int, int, int]:
 
 
 def gradient_fills(x, y_vals, hex_color: str, n_layers: int = 6) -> list[go.Scatter]:
-    """Stack n semi-transparent fill-to-zero scatter traces to fake a vertical gradient."""
+    """Single fill-to-zero trace with native vertical fillgradient (Plotly 6+).
+
+    Replaces the older stacked-layers approach which produced visible banding.
+    `n_layers` kept as a parameter for API compatibility but ignored.
+    """
     r, g, b = hex_to_rgb(hex_color)
-    out: list[go.Scatter] = []
-    for i in range(n_layers):
-        frac = (i + 1) / n_layers
-        y_layer = [None if (v is None or pd.isna(v)) else v * frac for v in y_vals]
-        alpha = 0.10 + 0.05 * (n_layers - i) / n_layers
-        out.append(go.Scatter(
-            x=list(x), y=y_layer, mode='lines',
-            line=dict(width=0),
-            fill='tozeroy',
-            fillcolor=f'rgba({r},{g},{b},{alpha:.3f})',
-            hoverinfo='skip', showlegend=False,
-        ))
-    return out
+    y_clean = [None if (v is None or pd.isna(v)) else v for v in y_vals]
+    return [go.Scatter(
+        x=list(x), y=y_clean, mode='lines',
+        line=dict(width=0),
+        fill='tozeroy',
+        fillgradient=dict(
+            type='vertical',
+            colorscale=[
+                [0.0, f'rgba({r},{g},{b},0.02)'],
+                [1.0, f'rgba({r},{g},{b},0.55)'],
+            ],
+        ),
+        hoverinfo='skip', showlegend=False,
+    )]
 
 
 def bar_gradient_shapes(x_idx, y_vals, hex_color: str,
-                        xref: str = 'x', yref: str = 'y') -> list[dict]:
-    """Per-bar vertical gradient as stacked thin rect shapes."""
+                        xref: str = 'x', yref: str = 'y',
+                        n_layers: int = 80) -> list[dict]:
+    """Per-bar vertical gradient as many thin stacked rect shapes (default 80 layers).
+
+    Plotly bar markers don't support gradients natively, so we paint each bar as a
+    stack of tall-thin rectangles with smoothly increasing alpha. n_layers ~ 80
+    is the threshold above which banding stops being visible at A4 200 dpi.
+    """
     r, g, b = hex_to_rgb(hex_color)
     shapes: list[dict] = []
-    half_w, n = 0.32, 14
+    half_w = 0.34
     for xi, v in zip(x_idx, y_vals):
         if v is None or pd.isna(v) or v == 0:
             continue
-        for k in range(n):
-            y0 = v * (k / n)
-            y1 = v * ((k + 1) / n)
-            alpha = 0.30 + 0.65 * (k / max(n - 1, 1))
+        for k in range(n_layers):
+            y0 = v * (k / n_layers)
+            y1 = v * ((k + 1) / n_layers)
+            alpha = 0.20 + 0.70 * (k / max(n_layers - 1, 1))
             shapes.append(dict(
                 type='rect', xref=xref, yref=yref,
                 x0=xi - half_w, x1=xi + half_w, y0=y0, y1=y1,
@@ -248,25 +259,37 @@ def build_themed_slide_fig(slide: dict, years_full: list[str],
 
     kind = slide['kind']
 
+    # Line shape: spline only for installed-capacity-style growth curves (set via
+    # slide['line_shape']='spline'); all other slides use straight segments for
+    # honest point-to-point reading.
+    _line_shape = slide.get('line_shape', 'linear')
+    _smoothing = 0.8 if _line_shape == 'spline' else None
+
     if kind == 'area_gradient':
         y, name, color = slide['traces'][0]
         y_list = list(y)
         for t in gradient_fills(years, y_list, color):
             fig.add_trace(t)
+        _line_kwargs = dict(color=color, width=3.5, shape=_line_shape)
+        if _smoothing is not None:
+            _line_kwargs['smoothing'] = _smoothing
         fig.add_trace(go.Scatter(
             x=years, y=y_list, mode='lines+markers', name=name,
-            line=dict(color=color, width=3.5, shape='spline', smoothing=0.8),
+            line=_line_kwargs,
             marker=dict(size=10, color=color, line=dict(color='white', width=2)),
         ))
 
     elif kind == 'dual_area':
         for y, name, color in slide['traces']:
             y_list = list(y)
-            for t in gradient_fills(years, y_list, color, n_layers=5):
+            for t in gradient_fills(years, y_list, color):
                 fig.add_trace(t)
+            _line_kwargs = dict(color=color, width=3.2, shape=_line_shape)
+            if _smoothing is not None:
+                _line_kwargs['smoothing'] = _smoothing
             fig.add_trace(go.Scatter(
                 x=years, y=y_list, mode='lines+markers', name=name,
-                line=dict(color=color, width=3.2, shape='spline', smoothing=0.7),
+                line=_line_kwargs,
                 marker=dict(size=9, color=color, line=dict(color='white', width=2)),
             ))
 
@@ -274,11 +297,15 @@ def build_themed_slide_fig(slide: dict, years_full: list[str],
         for i, (y, name, color) in enumerate(slide['traces']):
             y_list = list(y)
             is_ref = (i == 2)  # third trace is reference (dotted, thinner)
+            _line_kwargs = dict(color=color,
+                                width=2.0 if is_ref else 2.8,
+                                dash='dot' if is_ref else 'solid',
+                                shape=_line_shape)
+            if _smoothing is not None:
+                _line_kwargs['smoothing'] = _smoothing
             fig.add_trace(go.Scatter(
                 x=years, y=y_list, mode='lines+markers', name=name,
-                line=dict(color=color, width=2.0 if is_ref else 2.8,
-                          dash='dot' if is_ref else 'solid',
-                          shape='spline', smoothing=0.6),
+                line=_line_kwargs,
                 marker=dict(size=7 if is_ref else 9, color=color,
                             line=dict(color='white', width=2)),
             ))
@@ -300,6 +327,46 @@ def build_themed_slide_fig(slide: dict, years_full: list[str],
         ))
         for shp in bar_gradient_shapes(list(range(len(x_used))), y_used, color):
             fig.add_shape(**shp)
+
+    elif kind == 'dual_bar_gradient':
+        # Grouped bars: two traces side-by-side per x category, each with vertical gradient.
+        if slide.get('mask_partial'):
+            ys0 = list(slide['traces'][0][0])
+            keep_idx = [i for i, v in enumerate(ys0) if not (v is None or pd.isna(v))]
+            x_used = [years[i] for i in keep_idx]
+        else:
+            x_used = years
+            keep_idx = list(range(len(years)))
+
+        offsets = (-0.22, 0.22)  # x-shifts for grouped bars
+        half_w_each = 0.18
+        for ti, (y, name, color) in enumerate(slide['traces']):
+            y_full = list(y)
+            y_used = [y_full[i] for i in keep_idx]
+            # Invisible Bar trace holds legend entry + axis range (real visuals = shapes).
+            fig.add_trace(go.Bar(
+                x=x_used, y=y_used, name=name,
+                marker=dict(color=color, opacity=0.0),
+                hovertemplate='%{x}: %{y}<extra></extra>',
+                showlegend=True,
+            ))
+            x_centers = [i + offsets[ti] for i in range(len(x_used))]
+            r, g, b = hex_to_rgb(color)
+            for xc, v in zip(x_centers, y_used):
+                if v is None or pd.isna(v) or v == 0:
+                    continue
+                n = 80
+                for k in range(n):
+                    y0 = v * (k / n)
+                    y1 = v * ((k + 1) / n)
+                    alpha = 0.20 + 0.70 * (k / max(n - 1, 1))
+                    fig.add_shape(
+                        type='rect', xref='x', yref='y',
+                        x0=xc - half_w_each, x1=xc + half_w_each, y0=y0, y1=y1,
+                        line=dict(width=0),
+                        fillcolor=f'rgba({r},{g},{b},{alpha:.3f})',
+                        layer='below',
+                    )
 
     else:
         raise ValueError(f"unknown slide kind: {kind}")
@@ -380,19 +447,22 @@ def build_monthly_metric_by_year_fig(monthly_summary: pd.DataFrame,
         x_vals = [month_labels[m - 1] for m in sub['month_num']]
         r, g, b = hex_to_rgb(color)
         if emphasize_last and yr == years_to_plot[-1]:
-            for k in range(5):
-                frac = (k + 1) / 5
-                y_layer = [v * frac if not pd.isna(v) else None for v in y_vals]
-                alpha = 0.06 + 0.04 * (5 - k) / 5
-                fig.add_trace(go.Scatter(
-                    x=x_vals, y=y_layer, mode='lines', line=dict(width=0),
-                    fill='tozeroy', fillcolor=f'rgba({r},{g},{b},{alpha:.3f})',
-                    hoverinfo='skip', showlegend=False,
-                ))
+            fig.add_trace(go.Scatter(
+                x=x_vals, y=y_vals, mode='lines', line=dict(width=0),
+                fill='tozeroy',
+                fillgradient=dict(
+                    type='vertical',
+                    colorscale=[
+                        [0.0, f'rgba({r},{g},{b},0.02)'],
+                        [1.0, f'rgba({r},{g},{b},0.30)'],
+                    ],
+                ),
+                hoverinfo='skip', showlegend=False,
+            ))
         fig.add_trace(go.Scatter(
             x=x_vals, y=y_vals, mode='lines+markers',
             name=str(yr),
-            line=dict(color=color, width=3.2, shape='spline', smoothing=0.7),
+            line=dict(color=color, width=3.2, shape='linear'),
             marker=dict(size=10, color=color, line=dict(color='white', width=2)),
         ))
 

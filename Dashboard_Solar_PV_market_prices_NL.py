@@ -884,7 +884,7 @@ _pdf_slides_v2 = [
         title='Installed Solar PV Capacity', subtitle='Netherlands · NED.nl source · year-end GWp DC',
         ytitle='GWp (DC)', kind='area_gradient',
         traces=[(yst['Yearly_Installed_Capacity_GWp_DC'], 'Installed capacity', CLAUDE_PALETTE['accent'])],
-        mask_partial=False,
+        mask_partial=False, line_shape='spline',
     ),
     dict(
         title='Solar PV Energy Produced', subtitle='Annual generation in TWh · complete years only',
@@ -894,7 +894,7 @@ _pdf_slides_v2 = [
     ),
     dict(
         title='Specific Yield', subtitle='MWh produced per MWp installed · with & without negative-price hours',
-        ytitle='MWh / MWp', kind='dual_area',
+        ytitle='MWh / MWp', kind='dual_bar_gradient',
         traces=[
             (yst['Yearly_MWh_per_MWp'], 'incl. neg-price hours', CLAUDE_PALETTE['blue']),
             (yst['Yearly_MWh_per_MWp_excl_neg'], 'excl. neg-price hours', CLAUDE_PALETTE['sage']),
@@ -909,7 +909,7 @@ _pdf_slides_v2 = [
     ),
     dict(
         title='Negative-Price Hours', subtitle='Hours per year with Day-Ahead price < 0 €/MWh',
-        ytitle='Hours / year', kind='bar_gradient',
+        ytitle='Hours / year', kind='area_gradient',
         traces=[(yst['Yearly_Neg_Hours'], 'Negative-price hours', CLAUDE_PALETTE['sage'])],
         mask_partial=True,
     ),

@@ -752,7 +752,7 @@ _pdf_slides = [
         title='Installed Offshore Wind Capacity', subtitle='Netherlands · year-end GW AC (Birdview Central scenario)',
         ytitle='GW (AC)', kind='area_gradient',
         traces=[(yst['Yearly_Installed_Capacity_GW_AC'], 'Installed capacity', CLAUDE_PALETTE['accent'])],
-        mask_partial=False,
+        mask_partial=False, line_shape='spline',
     ),
     dict(
         title='Offshore Wind Energy Produced', subtitle='Annual generation in TWh · complete years only · NED.nl',
@@ -762,7 +762,7 @@ _pdf_slides = [
     ),
     dict(
         title='Specific Yield', subtitle='MWh produced per MW installed · with & without negative-price hours',
-        ytitle='MWh / MW', kind='dual_area',
+        ytitle='MWh / MW', kind='dual_bar_gradient',
         traces=[
             (yst['Yearly_MWh_per_MW'], 'incl. neg-price hours', CLAUDE_PALETTE['blue']),
             (yst['Yearly_MWh_per_MW_excl_neg'], 'excl. neg-price hours', CLAUDE_PALETTE['sage']),
@@ -777,7 +777,7 @@ _pdf_slides = [
     ),
     dict(
         title='Negative-Price Hours', subtitle='Hours per year with Day-Ahead price < 0 €/MWh',
-        ytitle='Hours / year', kind='bar_gradient',
+        ytitle='Hours / year', kind='area_gradient',
         traces=[(yst['Yearly_Neg_Hours'], 'Negative-price hours', CLAUDE_PALETTE['sage'])],
         mask_partial=True,
     ),
