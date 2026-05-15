@@ -153,6 +153,25 @@ def last_complete_year(last_time: pd.Timestamp) -> int:
     return int(last_time.year) - 1
 
 
+def last_complete_month_end(now: pd.Timestamp | None = None,
+                            tz: str = 'Europe/Amsterdam') -> pd.Timestamp:
+    """Tz-aware timestamp of the *last instant* of the previous calendar month.
+
+    Harmonises the month-end filter across Solar/Wind dashboards. Independent of
+    wall-clock vs UTC ambiguity around midnight: anchors on the first day of the
+    `now`-month in the given tz, then steps back 1 ns to land on the previous
+    month-end at 23:59:59.999999999.
+    """
+    if now is None:
+        now = pd.Timestamp.now(tz=tz)
+    if now.tz is None:
+        now = now.tz_localize(tz)
+    elif str(now.tz) != tz:
+        now = now.tz_convert(tz)
+    first_of_month = now.normalize().replace(day=1)
+    return first_of_month - pd.Timedelta(nanoseconds=1)
+
+
 def vw_price_groupby(df: pd.DataFrame, group_col: str,
                      prod_col: str, price_col: str) -> pd.Series:
     """Vectorised volume-weighted price = sum(prod*price) / sum(prod). Replaces per-row .apply(lambda)."""
