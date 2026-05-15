@@ -280,18 +280,32 @@ def build_themed_slide_fig(slide: dict, years_full: list[str],
         ))
 
     elif kind == 'dual_area':
-        for y, name, color in slide['traces']:
+        _label_indices = set(slide.get('label_trace_indices', []) or [])
+        _label_fmt = slide.get('label_fmt', '{:.0f}')
+        for ti, (y, name, color) in enumerate(slide['traces']):
             y_list = list(y)
             for t in gradient_fills(years, y_list, color):
                 fig.add_trace(t)
             _line_kwargs = dict(color=color, width=3.2, shape=_line_shape)
             if _smoothing is not None:
                 _line_kwargs['smoothing'] = _smoothing
-            fig.add_trace(go.Scatter(
+            _scatter_kwargs = dict(
                 x=years, y=y_list, mode='lines+markers', name=name,
                 line=_line_kwargs,
                 marker=dict(size=9, color=color, line=dict(color='white', width=2)),
-            ))
+            )
+            if ti in _label_indices:
+                _scatter_kwargs['mode'] = 'lines+markers+text'
+                _scatter_kwargs['text'] = [
+                    '' if (v is None or pd.isna(v)) else _label_fmt.format(v)
+                    for v in y_list
+                ]
+                _scatter_kwargs['textposition'] = 'bottom center'
+                _scatter_kwargs['textfont'] = dict(
+                    size=12, color=p['ink'], family=FONT_FAMILY,
+                )
+                _scatter_kwargs['cliponaxis'] = False
+            fig.add_trace(go.Scatter(**_scatter_kwargs))
 
     elif kind == 'triple_line':
         for i, (y, name, color) in enumerate(slide['traces']):
@@ -415,7 +429,10 @@ def build_themed_slide_fig(slide: dict, years_full: list[str],
     _brand_strip(fig, brand, source_date)
 
     for callout in slide.get('callouts', []) or []:
-        fig.add_annotation(**_fmt_callout(p, **callout))
+        cb = dict(callout)
+        if isinstance(cb.get('x'), str) and cb['x'] in years:
+            cb['x'] = years.index(cb['x'])
+        fig.add_annotation(**_fmt_callout(p, **cb))
 
     return fig
 

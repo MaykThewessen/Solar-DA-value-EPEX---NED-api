@@ -946,6 +946,7 @@ _pdf_slides_v2 = [
             (yst['Yearly_Profile_Factor_excl_neg'], 'excl. neg-price hours', CLAUDE_PALETTE['sage']),
         ],
         mask_partial=False, legend_position='right',
+        label_trace_indices=[0], label_fmt='{:.0f}%',
     ),
 ]
 
