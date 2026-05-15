@@ -129,6 +129,21 @@ def add_dt_hours(df: pd.DataFrame, time_col: str = 'time') -> pd.DataFrame:
     return df
 
 
+def last_complete_month_end(now: pd.Timestamp | None = None,
+                             tz: str = 'Europe/Amsterdam') -> pd.Timestamp:
+    """End-of-month timestamp for the most recently completed calendar month.
+
+    Always returns a tz-aware Timestamp in `tz`. Robust replacement for the divergent
+    `Period.end_time` (Solar) vs `replace(day=1) - 1s` (Wind) constructs.
+    """
+    if now is None:
+        now = pd.Timestamp.now(tz=tz)
+    elif now.tz is None:
+        now = now.tz_localize(tz)
+    period_prev = pd.Period(now, freq='M') - 1
+    return pd.Timestamp(period_prev.end_time, tz=tz)
+
+
 def last_complete_year(last_time: pd.Timestamp) -> int:
     """Year of the most recent fully-observed calendar year, given the last data timestamp."""
     if pd.isna(last_time):

@@ -61,6 +61,17 @@ def test_common_module():
     _check(dc.last_complete_year(pd.Timestamp('2025-12-31 23:45')) == 2025,
            'year-end -> current year')
 
+    # last_complete_month_end: tz-aware, end-of-previous-month
+    out = dc.last_complete_month_end(pd.Timestamp('2026-05-15 10:00'))
+    _check(out.tz is not None, 'last_complete_month_end returns tz-aware')
+    _check(out.year == 2026 and out.month == 4 and out.day == 30,
+           f'last_complete_month_end(2026-05-15) -> 2026-04-30 (got {out.date()})')
+
+    # vw_price_groupby: negative production -> NaN (matches old `sum>0` guard)
+    df_neg = pd.DataFrame({'m': [1, 1], 'p': [-5.0, -10.0], 'pr': [50.0, 80.0]})
+    out_neg = dc.vw_price_groupby(df_neg, 'm', 'p', 'pr')
+    _check(pd.isna(out_neg[1]), 'negative production sum -> NaN')
+
     # vw_price_groupby vectorised vs naive
     df = pd.DataFrame({
         'm': [1, 1, 2, 2, 2],

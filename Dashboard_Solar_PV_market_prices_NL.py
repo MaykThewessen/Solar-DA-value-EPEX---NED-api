@@ -178,18 +178,9 @@ monthly['Monthly_Profile_Factor'] = (monthly['Monthly_PV_Power_Weighted_DA_Price
 monthly['Monthly_PV_Yield_per_MW'] = monthly['Monthly_PV_Energy_MWh'] / monthly['Monthly_Installed_Capacity_MW']
 
 # Filter to only include complete months (exclude current incomplete month)
-from datetime import datetime
-current_date = datetime.now()
-last_complete_month = current_date.replace(day=1) - pd.Timedelta(days=1)  # Last day of previous month
-last_complete_month_period = pd.Period(last_complete_month, freq='M')
-
-# Convert to timezone-aware timestamp for comparison
-last_complete_timestamp = pd.Timestamp(last_complete_month_period.end_time, tz='Europe/Amsterdam')
-
-# Filter monthly data to exclude incomplete months
-monthly = monthly[monthly['month_date'] <= last_complete_month_period.to_timestamp()]
-
-# Also filter the original df_combined for consistency in calculations
+from dashboard_common import last_complete_month_end as _lcm_end
+last_complete_timestamp = _lcm_end()  # tz-aware Europe/Amsterdam end-of-prev-month
+monthly = monthly[monthly['month_date'] <= last_complete_timestamp.tz_localize(None).to_period('M').to_timestamp()]
 df_combined = df_combined[df_combined['time'] <= last_complete_timestamp]
 
 # Per-row interval in hours (handles hourly vs quarterly data automatically)

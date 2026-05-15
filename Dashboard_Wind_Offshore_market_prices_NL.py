@@ -17,9 +17,8 @@ df_wind = load_ned_wind_offshore()
 df_combined = pd.merge(df_prices, df_wind, on='time', how='left')
 
 # Filter data to only include complete months (last complete = last day of previous month)
-from datetime import datetime
-current_date = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-last_complete_month = pd.Timestamp(current_date, tz='Europe/Amsterdam').replace(day=1) - pd.Timedelta(seconds=1)
+from dashboard_common import last_complete_month_end as _lcm_end
+last_complete_month = _lcm_end()
 df_combined = df_combined[df_combined['time'] <= last_complete_month]
 
 print(f"Date range: {df_combined['time'].min()} to {df_combined['time'].max()}")
