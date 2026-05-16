@@ -5,3 +5,6 @@ __pycache__/
 # pixi environments
 .pixi/*
 !.pixi/config.toml
+
+# MkDocs build output
+/site/

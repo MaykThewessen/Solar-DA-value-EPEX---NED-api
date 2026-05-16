@@ -1,19 +1,28 @@
 site_name: Solar DA Value — NL
-site_description: Market value of Dutch solar PV and wind using EPEX day-ahead prices and NED.nl generation data.
-site_url: https://solar-da-value-epex-ned-api.readthedocs.io/
+site_description: Market value of Dutch solar PV and wind production from EPEX day-ahead prices and NED.nl generation data.
+site_url: https://maykthewessen.github.io/Solar-DA-value-EPEX---NED-api/
 repo_url: https://github.com/MaykThewessen/Solar-DA-value-EPEX---NED-api
 repo_name: MaykThewessen/Solar-DA-value-EPEX---NED-api
+edit_uri: edit/main/docs/
 
 docs_dir: docs
+site_dir: site
 
 theme:
   name: material
   features:
     - navigation.instant
     - navigation.tracking
+    - navigation.tabs
+    - navigation.sections
     - navigation.top
+    - toc.follow
+    - search.suggest
+    - search.highlight
     - content.code.copy
     - content.code.annotate
+    - content.action.edit
+    - content.action.view
   palette:
     - media: "(prefers-color-scheme: light)"
       scheme: default
@@ -29,12 +38,15 @@ theme:
       toggle:
         icon: material/weather-sunny
         name: Switch to light mode
+  icon:
+    repo: fontawesome/brands/github
 
 markdown_extensions:
   - admonition
   - attr_list
   - md_in_html
   - tables
+  - footnotes
   - toc:
       permalink: true
   - pymdownx.details
@@ -44,11 +56,15 @@ markdown_extensions:
   - pymdownx.snippets:
       base_path: ["."]
       check_paths: true
+  - pymdownx.tabbed:
+      alternate_style: true
   - pymdownx.superfences:
       custom_fences:
         - name: mermaid
           class: mermaid
           format: !!python/name:pymdownx.superfences.fence_code_format
+  - pymdownx.tasklist:
+      custom_checkbox: true
 
 plugins:
   - search
@@ -56,3 +72,8 @@ plugins:
 
 nav:
   - Home: index.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/MaykThewessen/Solar-DA-value-EPEX---NED-api
