@@ -1,4 +1,4 @@
-![image](https://github.com/user-attachments/assets/575ac8bf-bdd9-4bd3-a403-a1607bd4e690)
+![PV profile factor vs installed capacity (NL)](https://raw.githubusercontent.com/MaykThewessen/Solar-DA-value-EPEX---NED-api/main/pv_profile_factor_vs_capacity_dashboard_standard.svg)
 
 # Solar DA Value Analysis — NL
 
