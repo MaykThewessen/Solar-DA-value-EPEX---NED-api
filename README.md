@@ -255,7 +255,7 @@ gantt
 | `solar_production_plot_v3.html` | `combine_v3.py` | Yearly + monthly PV energy, market value, weighted price, profile factor |
 | `monthly_summary_table.html` | `combine_v3.py` | Monthly PV production, installed capacity, market value, price metrics |
 | `pv_profile_factor_vs_capacity_dashboard.html` | `Dashboard_PV_Profile_Factor_vs_Capacity.py` | Profile factor vs. installed DC capacity (yearly) |
-| `pv_profile_factor_vs_capacity_dashboard_xkcd.{png,pdf}` | `…-xkcd-matplotlib.py` | Same, xkcd hand-drawn style |
+| `pv_profile_factor_vs_capacity_dashboard_xkcd.{svg,pdf}` | `…-xkcd-matplotlib.py` | Same, xkcd hand-drawn style |
 | `wind_onshore_production_plot_v3.html` | `Dashboard_Wind_Onshore_market_prices_NL.py` | Onshore Wind energy + market value |
 | `wind_offshore_production_plot_v3.html` | `Dashboard_Wind_Offshore_market_prices_NL.py` | Offshore Wind energy + market value |
 | `wind_onshore_profile_factor_vs_capacity_dashboard.html` | `Dashboard_Wind_Onshore_Profile_Factor_vs_Capacity.py` | Onshore Wind profile factor vs. installed capacity |

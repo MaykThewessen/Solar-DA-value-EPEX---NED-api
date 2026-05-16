@@ -391,14 +391,14 @@ plt.tight_layout()
 
 # Save the plot
 plt.savefig('pv_profile_factor_vs_capacity_dashboard_standard.pdf', format='pdf', dpi=300, bbox_inches='tight')
-plt.savefig('pv_profile_factor_vs_capacity_dashboard_standard.png', format='png', dpi=300, bbox_inches='tight')
+plt.savefig('pv_profile_factor_vs_capacity_dashboard_standard.svg', format='svg', bbox_inches='tight')
 
 # Show the plot
 plt.show()
 
 print(f"\nDashboard created:")
 print(f"  - PDF: pv_profile_factor_vs_capacity_dashboard_standard.pdf")
-print(f"  - PNG: pv_profile_factor_vs_capacity_dashboard_standard.png")
+print(f"  - SVG: pv_profile_factor_vs_capacity_dashboard_standard.svg")
 print(f"Data points: {len(plot_data)} years")
 print(f"Years covered: {plot_data['year'].min()} - {plot_data['year'].max()}")
 print(f"Capacity range: {plot_data['Installed_Capacity_GWp_DC'].min():.2f} - {plot_data['Installed_Capacity_GWp_DC'].max():.2f} GWp DC")
