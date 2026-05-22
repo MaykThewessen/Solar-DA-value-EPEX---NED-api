@@ -13,7 +13,6 @@ Run:
 
 from __future__ import annotations
 
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -22,7 +21,7 @@ import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parent
-PY = os.path.expanduser('~/.pixi/envs/main/bin/python')
+PY = str(Path.home() / '.pixi' / 'envs' / 'main' / 'bin' / 'python')
 
 
 def _section(title: str) -> None:
