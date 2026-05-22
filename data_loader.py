@@ -1,9 +1,9 @@
 """Shared loaders for Day-Ahead prices and NED.nl generation series.
 
 All series are sourced from the birdcurve_nl DuckDB warehouse
-(`birdcurve.duckdb`), which stores `timestamp_utc` as a tz-naive
-TIMESTAMP in UTC by convention. Loaders localize to UTC at the read
-boundary and convert to `Europe/Amsterdam` for downstream consumption.
+(`birdcurve.duckdb`). DuckDB stores `timestamp_utc` as a tz-aware
+TIMESTAMPTZ once `SET TimeZone='UTC'` is applied at connect time, so
+loaders no longer need to round-trip through `tz_localize`.
 
 Resolution invariants:
   - All loaders return a uniform 15-min grid. NED tables are natively
@@ -18,10 +18,10 @@ Resolution invariants:
 from __future__ import annotations
 
 import os
-from datetime import datetime
 from pathlib import Path
 
 import duckdb
+import numpy as np
 import pandas as pd
 
 DEFAULT_TZ = 'Europe/Amsterdam'
@@ -30,21 +30,39 @@ BIRDCURVE_DB = Path(os.environ.get(
     '/Users/mayk/birdcurve_nl/data/birdcurve.duckdb',
 ))
 
+SLOT_HOURS = 0.25  # 15-min slot length, hours
+
+
+# Module-level DuckDB connection cache (read-only). Re-opening the database for
+# every loader call adds ~50-100ms × 5 calls per dashboard run; cache it. The
+# dashboard process is short-lived so we don't need explicit teardown.
+_CON: duckdb.DuckDBPyConnection | None = None
+
 
 def _connect() -> duckdb.DuckDBPyConnection:
-    if not BIRDCURVE_DB.exists():
-        raise FileNotFoundError(
-            f"birdcurve DuckDB not found at {BIRDCURVE_DB}. "
-            "Set BIRDCURVE_DB env var to override."
-        )
-    return duckdb.connect(str(BIRDCURVE_DB), read_only=True)
+    """Return a cached read-only DuckDB connection with timezone fixed to UTC."""
+    global _CON
+    if _CON is None:
+        if not BIRDCURVE_DB.exists():
+            raise FileNotFoundError(
+                f"birdcurve DuckDB not found at {BIRDCURVE_DB}. "
+                "Set BIRDCURVE_DB env var to override."
+            )
+        _CON = duckdb.connect(str(BIRDCURVE_DB), read_only=True)
+        _CON.execute("SET TimeZone='UTC'")
+    return _CON
 
 
-def _utc_to_local(s: pd.Series, tz: str) -> pd.Series:
-    return s.dt.tz_localize('UTC').dt.tz_convert(tz)
+def _to_local(s: pd.Series, tz: str) -> pd.Series:
+    """Convert a UTC timestamp Series to the display tz.
 
-
-SLOT_HOURS = 0.25  # 15-min slot length, hours
+    DuckDB may return either tz-naive UTC or tz-aware UTC depending on the
+    column type; handle both. `tz_localize('UTC')` raises on already-aware
+    Series, so we check first.
+    """
+    if s.dt.tz is None:
+        s = s.dt.tz_localize('UTC')
+    return s.dt.tz_convert(tz)
 
 
 def load_ned_pv(tz: str = DEFAULT_TZ) -> pd.DataFrame:
@@ -54,36 +72,34 @@ def load_ned_pv(tz: str = DEFAULT_TZ) -> pd.DataFrame:
     coalesced to 0 (NED reports zero PV at night). Time range clipped to
     where PV was actually ingested.
     """
-    with _connect() as con:
-        df = con.execute(f"""
-            WITH bounds AS (
-                SELECT MIN(timestamp_utc) AS lo, MAX(timestamp_utc) AS hi
-                  FROM ts_15min WHERE NED_PV__PV IS NOT NULL
-            )
-            SELECT t.timestamp_utc                          AS time,
-                   COALESCE(t.NED_PV__PV, 0) * {SLOT_HOURS} AS Solar_production_MWh
-              FROM ts_15min t, bounds b
-             WHERE t.timestamp_utc BETWEEN b.lo AND b.hi
-             ORDER BY t.timestamp_utc
-        """).df()
-    df['time'] = _utc_to_local(df['time'], tz)
+    df = _connect().execute(f"""
+        WITH bounds AS (
+            SELECT MIN(timestamp_utc) AS lo, MAX(timestamp_utc) AS hi
+              FROM ts_15min WHERE NED_PV__PV IS NOT NULL
+        )
+        SELECT t.timestamp_utc                          AS time,
+               COALESCE(t.NED_PV__PV, 0) * {SLOT_HOURS} AS Solar_production_MWh
+          FROM ts_15min t, bounds b
+         WHERE t.timestamp_utc BETWEEN b.lo AND b.hi
+         ORDER BY t.timestamp_utc
+    """).df()
+    df['time'] = _to_local(df['time'], tz)
     return df
 
 
 def _load_ned_wind_component(column: str, out_col: str, tz: str) -> pd.DataFrame:
-    with _connect() as con:
-        df = con.execute(f"""
-            WITH bounds AS (
-                SELECT MIN(timestamp_utc) AS lo, MAX(timestamp_utc) AS hi
-                  FROM ts_15min WHERE {column} IS NOT NULL
-            )
-            SELECT t.timestamp_utc                  AS time,
-                   COALESCE(t.{column}, 0) * {SLOT_HOURS} AS {out_col}
-              FROM ts_15min t, bounds b
-             WHERE t.timestamp_utc BETWEEN b.lo AND b.hi
-             ORDER BY t.timestamp_utc
-        """).df()
-    df['time'] = _utc_to_local(df['time'], tz)
+    df = _connect().execute(f"""
+        WITH bounds AS (
+            SELECT MIN(timestamp_utc) AS lo, MAX(timestamp_utc) AS hi
+              FROM ts_15min WHERE {column} IS NOT NULL
+        )
+        SELECT t.timestamp_utc                  AS time,
+               COALESCE(t.{column}, 0) * {SLOT_HOURS} AS {out_col}
+          FROM ts_15min t, bounds b
+         WHERE t.timestamp_utc BETWEEN b.lo AND b.hi
+         ORDER BY t.timestamp_utc
+    """).df()
+    df['time'] = _to_local(df['time'], tz)
     return df
 
 
@@ -116,23 +132,22 @@ def load_ned_wind(tz: str = DEFAULT_TZ) -> pd.DataFrame:
     Time range bounded to where at least one wind column has been ingested;
     missing components inside that range treated as 0.
     """
-    with _connect() as con:
-        df = con.execute(f"""
-            WITH bounds AS (
-                SELECT MIN(timestamp_utc) AS lo, MAX(timestamp_utc) AS hi
-                  FROM ts_15min
-                 WHERE NED_Wind_Onshore__Wind_Onshore  IS NOT NULL
-                    OR NED_Wind_Offshore__Wind_Offshore IS NOT NULL
-            )
-            SELECT t.timestamp_utc AS time,
-                   ( COALESCE(t.NED_Wind_Onshore__Wind_Onshore,  0)
-                   + COALESCE(t.NED_Wind_Offshore__Wind_Offshore, 0)
-                   ) * {SLOT_HOURS} AS Wind_production_MWh
-              FROM ts_15min t, bounds b
-             WHERE t.timestamp_utc BETWEEN b.lo AND b.hi
-             ORDER BY t.timestamp_utc
-        """).df()
-    df['time'] = _utc_to_local(df['time'], tz)
+    df = _connect().execute(f"""
+        WITH bounds AS (
+            SELECT MIN(timestamp_utc) AS lo, MAX(timestamp_utc) AS hi
+              FROM ts_15min
+             WHERE NED_Wind_Onshore__Wind_Onshore  IS NOT NULL
+                OR NED_Wind_Offshore__Wind_Offshore IS NOT NULL
+        )
+        SELECT t.timestamp_utc AS time,
+               ( COALESCE(t.NED_Wind_Onshore__Wind_Onshore,  0)
+               + COALESCE(t.NED_Wind_Offshore__Wind_Offshore, 0)
+               ) * {SLOT_HOURS} AS Wind_production_MWh
+          FROM ts_15min t, bounds b
+         WHERE t.timestamp_utc BETWEEN b.lo AND b.hi
+         ORDER BY t.timestamp_utc
+    """).df()
+    df['time'] = _to_local(df['time'], tz)
     return df
 
 
@@ -145,15 +160,15 @@ def load_da_prices(tz: str = DEFAULT_TZ, clip_future: bool = True) -> pd.DataFra
     of the hour). Reindex is done in UTC to avoid DST ambiguity at the
     autumn fall-back.
     """
-    with _connect() as con:
-        df = con.execute("""
-            SELECT timestamp_utc      AS time,
-                   DA_price__DA_price AS DA_price
-              FROM ts_hourly
-             WHERE DA_price__DA_price IS NOT NULL
-             ORDER BY timestamp_utc
-        """).df()
-    df['time'] = pd.to_datetime(df['time']).dt.tz_localize('UTC')
+    df = _connect().execute("""
+        SELECT timestamp_utc      AS time,
+               DA_price__DA_price AS DA_price
+          FROM ts_hourly
+         WHERE DA_price__DA_price IS NOT NULL
+         ORDER BY timestamp_utc
+    """).df()
+    if df['time'].dt.tz is None:
+        df['time'] = df['time'].dt.tz_localize('UTC')
 
     grid = pd.date_range(df['time'].min(), df['time'].max(), freq='15min', tz='UTC')
     df = df.set_index('time').reindex(grid)
@@ -163,12 +178,51 @@ def load_da_prices(tz: str = DEFAULT_TZ, clip_future: bool = True) -> pd.DataFra
     df['time'] = df['time'].dt.tz_convert(tz)
 
     if clip_future:
-        midnight_today = pd.Timestamp(
-            datetime.now().replace(hour=0, minute=0, second=0, microsecond=0),
-            tz=tz,
-        )
+        # Tz-aware "today midnight in the display tz" — direct replacement for
+        # the older `datetime.now().replace(hour=0,…).astimezone(tz)` round-trip
+        # which depended on the host machine's local clock.
+        midnight_today = pd.Timestamp.now(tz=tz).normalize()
         df = df[df['time'] <= midnight_today]
     return df
+
+
+def load_capacity_points(csv_path: str | Path,
+                         tz: str = DEFAULT_TZ) -> pd.DataFrame:
+    """Read a capacity-points CSV into a tz-aware (date, MW) DataFrame.
+
+    Expects columns `date` (parseable timestamp with offset, e.g.
+    `2024-12-31 00:00:00+01:00`) and `MW`.
+    """
+    df = pd.read_csv(csv_path)
+    df['date'] = pd.to_datetime(df['date'], utc=True).dt.tz_convert(tz)
+    df['MW'] = df['MW'].astype(float)
+    return df.sort_values('date').reset_index(drop=True)
+
+
+def interp_capacity(times: pd.Series, anchors: pd.DataFrame) -> np.ndarray:
+    """Piece-wise linear interpolation of installed capacity at `times`.
+
+    Vectorised replacement for the per-row `.apply(...)` interpolator in the
+    legacy dashboards. Outside the anchor range capacities are flat-extrapolated
+    (numpy's default for `np.interp`), matching the legacy Solar behaviour.
+
+    Parameters
+    ----------
+    times : pd.Series of tz-aware Timestamps.
+    anchors : DataFrame with columns 'date' (tz-aware Timestamps, sorted asc)
+        and 'MW' (float).
+
+    Returns
+    -------
+    ndarray of float capacities aligned with `times`.
+    """
+    # Convert both sides to int64 nanoseconds-since-epoch so np.interp can run
+    # on plain ints. Both inputs are tz-aware, so the underlying ns-grid is
+    # absolute (no DST drift).
+    x_anchor = anchors['date'].astype('int64').to_numpy()
+    y_anchor = anchors['MW'].to_numpy(dtype=float)
+    x = pd.to_datetime(times).astype('int64').to_numpy()
+    return np.interp(x, x_anchor, y_anchor)
 
 
 if __name__ == '__main__':
