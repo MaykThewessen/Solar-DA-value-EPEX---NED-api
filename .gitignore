@@ -8,3 +8,9 @@ __pycache__/
 
 # MkDocs build output
 /site/
+
+# Generated artifacts directory for new pipeline outputs (placeholder).
+# Dashboards write outputs to repo root; large stale HTML excluded
+# from tracking via explicit `git rm`, not a blanket `*.html` / `*.pdf` ignore
+# (current deliverables live alongside source and must remain tracked).
+/output/
