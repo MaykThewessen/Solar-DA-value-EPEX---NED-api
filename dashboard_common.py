@@ -8,6 +8,7 @@ Public surface:
     add_dt_hours(df, time_col='time') -> df with `_dt_h` column (median-fallback, not bfill)
     last_complete_year(last_time: pd.Timestamp) -> int
     vw_price_groupby(df, group_col, prod_col, price_col) -> pd.Series       # vectorised capture price
+    year_color_map(years, palette='solar'|'wind', highlight_recent=0|2)     # year -> hex color
     build_themed_slide_fig(slide, years, last_complete_year, brand, source_date) -> go.Figure
     build_monthly_metric_by_year_fig(monthly_summary, value_col, years_to_plot, ...) -> go.Figure
     build_yearly_summary_table_fig(yst, columns_spec, brand, title, subtitle, source_date) -> go.Figure
@@ -140,21 +141,6 @@ def add_dt_hours(df: pd.DataFrame, time_col: str = 'time') -> pd.DataFrame:
     return df
 
 
-def last_complete_month_end(now: pd.Timestamp | None = None,
-                             tz: str = 'Europe/Amsterdam') -> pd.Timestamp:
-    """End-of-month timestamp for the most recently completed calendar month.
-
-    Always returns a tz-aware Timestamp in `tz`. Robust replacement for the divergent
-    `Period.end_time` (Solar) vs `replace(day=1) - 1s` (Wind) constructs.
-    """
-    if now is None:
-        now = pd.Timestamp.now(tz=tz)
-    elif now.tz is None:
-        now = now.tz_localize(tz)
-    period_prev = pd.Period(now, freq='M') - 1
-    return pd.Timestamp(period_prev.end_time, tz=tz)
-
-
 def last_complete_year(last_time: pd.Timestamp) -> int:
     """Year of the most recent fully-observed calendar year, given the last data timestamp."""
     if pd.isna(last_time):
@@ -181,6 +167,52 @@ def last_complete_month_end(now: pd.Timestamp | None = None,
         now = now.tz_convert(tz)
     first_of_month = now.normalize().replace(day=1)
     return first_of_month - pd.Timedelta(nanoseconds=1)
+
+
+# Year-color palettes shared by all market-price dashboards.
+# `_DISTINCT_COLORS_SOLAR` matches the legacy Solar dashboard palette (pink #e377c2 at idx 6).
+# `_DISTINCT_COLORS_WIND` matches the legacy Wind dashboards (medium-violet-red #C71585 at idx 7).
+_DISTINCT_COLORS_SOLAR: tuple[str, ...] = (
+    '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
+    '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf',
+    '#ff9896', '#98df8a', '#ffbb78', '#aec7e8', '#c5b0d5',
+)
+_DISTINCT_COLORS_WIND: tuple[str, ...] = (
+    '#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd',
+    '#8c564b', '#e377c2', '#C71585', '#bcbd22', '#17becf',
+    '#ff9896', '#98df8a', '#ffbb78', '#aec7e8', '#c5b0d5',
+)
+# Two warm hues highlighting the most-recent / second-most-recent year on Solar plots.
+_BRIGHT_COLORS_RECENT: tuple[str, ...] = ('#DC143C', '#FF8C00')
+
+
+def year_color_map(years: list[int], *,
+                   palette: str = 'solar',
+                   highlight_recent: int = 0) -> dict[int, str]:
+    """Map sorted years to distinguishable hex colors.
+
+    Parameters
+    ----------
+    years : list[int]
+        Years to map; must be sortable. Order in the returned dict matches `sorted(years)`.
+    palette : {'solar', 'wind'}
+        Choose between the two legacy distinct-color palettes. Differ only at index 6/7
+        (pink vs medium-violet-red) — kept separate to preserve byte-identical output
+        with the pre-refactor scripts.
+    highlight_recent : int, default 0
+        How many of the *most recent* years to override with warm highlight colors
+        (#DC143C, #FF8C00). 0 disables (Wind behaviour); 2 matches legacy Solar.
+    """
+    distinct = _DISTINCT_COLORS_SOLAR if palette == 'solar' else _DISTINCT_COLORS_WIND
+    years_sorted = sorted(years)
+    n = len(years_sorted)
+    out: dict[int, str] = {}
+    for i, year in enumerate(years_sorted):
+        if highlight_recent and i >= n - highlight_recent:
+            out[year] = _BRIGHT_COLORS_RECENT[i - (n - highlight_recent)]
+        else:
+            out[year] = distinct[i % len(distinct)]
+    return out
 
 
 def vw_price_groupby(df: pd.DataFrame, group_col: str,
