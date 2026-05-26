@@ -95,7 +95,7 @@ def concatenate_ned_data_by_year(
             continue
 
         combined = pd.concat(frames, ignore_index=True)
-        combined["time"] = pd.to_datetime(combined["time"])
+        combined["time"] = pd.to_datetime(combined["time"], utc=True)
         combined = combined.sort_values("time").reset_index(drop=True)
 
         out_path = output_dir / f"{stem}_generation_{year}.csv"

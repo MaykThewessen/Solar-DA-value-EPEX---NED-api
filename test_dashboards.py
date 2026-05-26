@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 
 ROOT = Path(__file__).resolve().parent
-PY = str(Path.home() / '.pixi' / 'envs' / 'main' / 'bin' / 'python')
+PY = sys.executable
 
 
 def _section(title: str) -> None:
@@ -95,24 +95,31 @@ def _run_dashboard(script: str) -> None:
 
 
 def test_run_all():
-    _section('2) run all 3 dashboards')
-    scripts = [
-        'Dashboard_Solar_PV_market_prices_NL.py',
-        'Dashboard_Wind_Onshore_market_prices_NL.py',
-        'Dashboard_Wind_Offshore_market_prices_NL.py',
-    ]
-    for s in scripts:
-        print(f"  running {s} ...")
-        _run_dashboard(s)
-        print(f"  done")
+    _section('2) run all dashboards')
+    print("  running Dashboard_market_prices_NL.py ...")
+    _run_dashboard('Dashboard_market_prices_NL.py')
+    print("  done")
+    print("  running Dashboard_profile_factor_vs_capacity.py all ...")
+    res = subprocess.run(
+        [PY, 'Dashboard_profile_factor_vs_capacity.py', 'all'],
+        cwd=ROOT, capture_output=True, text=True, timeout=600,
+    )
+    if res.returncode != 0:
+        print(res.stdout[-2000:])
+        print('STDERR:', res.stderr[-2000:])
+        raise AssertionError(f'Dashboard_profile_factor_vs_capacity.py exited {res.returncode}')
+    print("  done")
 
     expected = [
         'solar_yearly_slides.pdf', 'solar_yearly_slides.html',
         'solar_production_plot_v3.html', 'monthly_summary_table.html',
-        'wind_onshore_yearly_slides.pdf', 'wind_onshore_production_plot_v3.html',
-        'wind_onshore_monthly_summary_table.html',
-        'wind_offshore_yearly_slides.pdf', 'wind_offshore_production_plot_v3.html',
-        'wind_offshore_monthly_summary_table.html',
+        'wind_onshore_yearly_slides.pdf', 'wind_onshore_yearly_slides.html',
+        'wind_onshore_production_plot_v3.html', 'wind_onshore_monthly_summary_table.html',
+        'wind_offshore_yearly_slides.pdf', 'wind_offshore_yearly_slides.html',
+        'wind_offshore_production_plot_v3.html', 'wind_offshore_monthly_summary_table.html',
+        'pv_profile_factor_vs_capacity_dashboard.pdf',
+        'wind_onshore_profile_factor_vs_capacity_dashboard.pdf',
+        'wind_offshore_profile_factor_vs_capacity_dashboard.pdf',
     ]
     for fname in expected:
         p = ROOT / fname

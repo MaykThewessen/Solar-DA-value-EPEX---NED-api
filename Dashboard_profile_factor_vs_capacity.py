@@ -578,10 +578,10 @@ def build_figure(
 def _add_scatter_points(fig: go.Figure, plot_data: pd.DataFrame, cfg: ProfileFactorTechConfig) -> None:
     years_list = sorted(plot_data['year'].unique())
     year_to_color = _year_color_map(years_list)
-    for _, row in plot_data.iterrows():
-        year = int(row['year'])
-        capacity = float(row['Capacity_GW_July1'])
-        pf = float(row['Yearly_Profile_Factor'])
+    for row in plot_data.itertuples(index=False):
+        year = int(row.year)
+        capacity = float(row.Capacity_GW_July1)
+        pf = float(row.Yearly_Profile_Factor)
         fig.add_trace(go.Scatter(
             x=[capacity], y=[pf],
             mode='markers+text',
@@ -725,14 +725,16 @@ def _print_summary(plot_data: pd.DataFrame, summary: dict, cfg: ProfileFactorTec
         print(f'Asymptotic behavior: {cfg.label_short} profile factor approaches 0% but never reaches it')
         print(f'{cfg.label_short} will always retain some market value on the day-ahead market')
 
+        a_adj = float(np.polyval(summary['coeffs_linear'], summary['jan_1_capacity_gw']))
+        jan_1 = summary['jan_1_capacity_gw']
         print('\nExponential extrapolation threshold milestones:')
         for threshold in (5.0, 2.0, 1.0):
-            if threshold < a:
-                x_at_threshold = (np.log(threshold / a)) / b
+            if threshold < a_adj:
+                x_at_threshold = jan_1 + (np.log(threshold / a_adj)) / b
                 print(f'  Profile factor reaches {threshold}% at: {x_at_threshold:.1f} '
                       f"{cfg.capacity_unit.split()[0]}")
         cap = cfg.callout_capacity_gw
-        pf_at_cap = a * np.exp(b * cap)
+        pf_at_cap = summary.get('profile_factor_at_callout', a_adj * np.exp(b * (cap - jan_1)))
         print(f'  Profile factor at {cap:.0f} {cfg.capacity_unit.split()[0]}: {pf_at_cap:.1f}%')
     else:
         print('Exponential extrapolation not available (fallback to linear only)')

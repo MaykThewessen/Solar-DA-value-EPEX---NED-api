@@ -197,7 +197,7 @@ def _build_monthly_summary(df: pd.DataFrame, cfg: TechConfig) -> pd.DataFrame:
         / base['Avg_DA_Price_pos']
     ) * 100
     base['curtailment_pct'] = (
-        (base[prod] - base['_prod_pos']) / base[prod].replace(0, np.nan)
+        (base[prod] - base['_prod_pos'].fillna(0)) / base[prod].replace(0, np.nan)
     ) * 100
 
     neg_monthly = (
