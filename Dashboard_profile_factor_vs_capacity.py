@@ -734,7 +734,8 @@ def _print_summary(plot_data: pd.DataFrame, summary: dict, cfg: ProfileFactorTec
                 print(f'  Profile factor reaches {threshold}% at: {x_at_threshold:.1f} '
                       f"{cfg.capacity_unit.split()[0]}")
         cap = cfg.callout_capacity_gw
-        pf_at_cap = summary.get('profile_factor_at_callout', a_adj * np.exp(b * (cap - jan_1)))
+        _cached = summary.get('profile_factor_at_callout')
+        pf_at_cap = _cached if _cached is not None else a_adj * np.exp(b * (cap - jan_1))
         print(f'  Profile factor at {cap:.0f} {cfg.capacity_unit.split()[0]}: {pf_at_cap:.1f}%')
     else:
         print('Exponential extrapolation not available (fallback to linear only)')
