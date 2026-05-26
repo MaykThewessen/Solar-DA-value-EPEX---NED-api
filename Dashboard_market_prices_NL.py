@@ -598,8 +598,9 @@ def _add_remaining_monthly_lines(fig: go.Figure, monthly: pd.DataFrame,
                                  cfg: TechConfig, is_solar: bool) -> None:
     """Add the four monthly metric subplots (rows 2..6 for solar, rows 3..6 for wind).
 
-    Each year becomes a `legendgroup=year_<Y>` so toggling the legend hides all
-    matching traces — replaces the brittle index-arithmetic in the legacy code.
+    Row 2 (solar energy) keeps per-year lines so seasonal shape is visible.
+    Rows 3-6 (yield, market value, capture rate, capture price) show all months
+    concatenated on a continuous time axis.
     """
     energy_col = f'Monthly_{cfg.power_label}_Energy_MWh'
     cap_col = 'Monthly_Installed_Capacity_MW'
@@ -621,7 +622,7 @@ def _add_remaining_monthly_lines(fig: go.Figure, monthly: pd.DataFrame,
     month_text = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
                   'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
-    # Row 2 (Solar only): PV Energy GWh
+    # Row 2 (Solar only): PV Energy GWh — per-year lines for seasonal comparison.
     if is_solar:
         for year in years_sorted:
             yd = monthly[monthly['year'] == year].copy()
@@ -647,111 +648,89 @@ def _add_remaining_monthly_lines(fig: go.Figure, monthly: pd.DataFrame,
         fig.update_xaxes(title_text='', row=2, col=1, tickmode='array',
                          tickvals=month_ticks, ticktext=month_text, range=[0.5, 12.5])
 
+    # Rows 3-6: continuous time series across all months.
+    ts = monthly.sort_values('month_date').copy()
+    x_dates = ts['month_date'].tolist()
+    hover_labels = ts['month_date'].dt.strftime('%b %Y').tolist()
+    blue = CLAUDE_PALETTE['blue']
+
     # Row 3: yield (MWh per MWp/MW)
-    for year in years_sorted:
-        yd = monthly[monthly['year'] == year].copy()
-        yd['month_num'] = yd['month_date'].dt.month
-        yd = yd.sort_values('month_num')
-        unit = 'MWh/MWp' if is_solar else 'MWh/MW'
-        fig.add_trace(
-            go.Scatter(
-                x=yd['month_num'], y=yd[energy_col] / yd[cap_col],
-                name=f'{year}', mode='lines+markers',
-                line=dict(width=2), marker=dict(size=6),
-                hovertemplate=(
-                    '<b>Year:</b> %{fullData.name}<br>'
-                    '<b>Month:</b> %{customdata}<br>'
-                    f'<b>{unit}:</b> %{{y:.1f}}<extra></extra>'
-                ),
-                customdata=yd['month_date'].dt.strftime('%B'),
-                legendgroup=f'year_{year}', showlegend=True,
-                line_color=color_map[year],
+    unit = 'MWh/MWp' if is_solar else 'MWh/MW'
+    fig.add_trace(
+        go.Scatter(
+            x=x_dates, y=ts[energy_col] / ts[cap_col],
+            name=unit, mode='lines+markers',
+            line=dict(width=2, color=blue), marker=dict(size=4),
+            hovertemplate=(
+                '<b>Month:</b> %{customdata}<br>'
+                f'<b>Yield:</b> %{{y:.1f}} {unit}<extra></extra>'
             ),
-            row=row_yield, col=1, secondary_y=False,
-        )
+            customdata=hover_labels,
+            showlegend=True,
+        ),
+        row=row_yield, col=1,
+    )
     fig.update_yaxes(title_text='MWh per MWp' if is_solar else 'MWh per MW',
                      row=row_yield, col=1)
-    fig.update_xaxes(title_text='', row=row_yield, col=1, tickmode='array',
-                     tickvals=month_ticks, ticktext=month_text, range=[0.5, 12.5])
+    fig.update_xaxes(title_text='', row=row_yield, col=1, type='date')
 
     # Row 4: market value
-    for year in years_sorted:
-        yd = monthly[monthly['year'] == year].copy()
-        yd['month_num'] = yd['month_date'].dt.month
-        yd = yd.sort_values('month_num')
-        unit = 'EUR/MWp' if is_solar else 'EUR/MW'
-        fig.add_trace(
-            go.Scatter(
-                x=yd['month_num'], y=yd[value_col],
-                name=f'{year}', mode='lines+markers',
-                line=dict(width=2), marker=dict(size=6),
-                hovertemplate=(
-                    '<b>Year:</b> %{fullData.name}<br>'
-                    '<b>Month:</b> %{customdata}<br>'
-                    f'<b>Market Value:</b> %{{y:.1f}} {unit}<extra></extra>'
-                ),
-                customdata=yd['month_date'].dt.strftime('%B'),
-                legendgroup=f'year_{year}', showlegend=True,
-                line_color=color_map[year],
+    unit_val = '€/MWp' if is_solar else '€/MW'
+    fig.add_trace(
+        go.Scatter(
+            x=x_dates, y=ts[value_col],
+            name=unit_val, mode='lines+markers',
+            line=dict(width=2, color=blue), marker=dict(size=4),
+            hovertemplate=(
+                '<b>Month:</b> %{customdata}<br>'
+                f'<b>Market Value:</b> €%{{y:.1f}} {unit_val}<extra></extra>'
             ),
-            row=row_value, col=1, secondary_y=False,
-        )
+            customdata=hover_labels,
+            showlegend=True,
+        ),
+        row=row_value, col=1,
+    )
     fig.update_yaxes(title_text='€ per MWp' if is_solar else '€ per MW',
                      row=row_value, col=1)
-    fig.update_xaxes(title_text='', row=row_value, col=1, tickmode='array',
-                     tickvals=month_ticks, ticktext=month_text, range=[0.5, 12.5])
+    fig.update_xaxes(title_text='', row=row_value, col=1, type='date')
 
-    # Row 5: profile factor / capture rate
-    for year in years_sorted:
-        yd = monthly[monthly['year'] == year].copy()
-        yd['month_num'] = yd['month_date'].dt.month
-        yd = yd.sort_values('month_num')
-        fig.add_trace(
-            go.Scatter(
-                x=yd['month_num'], y=yd['Monthly_Profile_Factor'],
-                name=f'{year}', mode='lines+markers',
-                line=dict(width=2), marker=dict(size=6),
-                hovertemplate=(
-                    '<b>Year:</b> %{fullData.name}<br>'
-                    '<b>Month:</b> %{customdata}<br>'
-                    '<b>Capture rate:</b> %{y:.1f}%<extra></extra>'
-                ),
-                customdata=yd['month_date'].dt.strftime('%B'),
-                legendgroup=f'year_{year}', showlegend=True,
-                line_color=color_map[year],
+    # Row 5: capture rate
+    fig.add_trace(
+        go.Scatter(
+            x=x_dates, y=ts['Monthly_Profile_Factor'],
+            name=f'{cfg.capture_metric_name} rate (%)', mode='lines+markers',
+            line=dict(width=2, color=blue), marker=dict(size=4),
+            hovertemplate=(
+                '<b>Month:</b> %{customdata}<br>'
+                '<b>Capture rate:</b> %{y:.1f}%<extra></extra>'
             ),
-            row=row_pf, col=1, secondary_y=False,
-        )
+            customdata=hover_labels,
+            showlegend=True,
+        ),
+        row=row_pf, col=1,
+    )
     fig.update_yaxes(title_text=f'{cfg.capture_metric_name} rate (%)',
-                     row=row_pf, col=1, range=[0, 100])
-    fig.update_xaxes(title_text='', row=row_pf, col=1, tickmode='array',
-                     tickvals=month_ticks, ticktext=month_text, range=[0.5, 12.5])
+                     row=row_pf, col=1, range=[0, 150])
+    fig.update_xaxes(title_text='', row=row_pf, col=1, type='date')
 
     # Row 6: capture price
-    for year in years_sorted:
-        yd = monthly[monthly['year'] == year].copy()
-        yd['month_num'] = yd['month_date'].dt.month
-        yd = yd.sort_values('month_num')
-        fig.add_trace(
-            go.Scatter(
-                x=yd['month_num'], y=yd[weighted_col],
-                name=f'{year}', mode='lines+markers',
-                line=dict(width=2), marker=dict(size=6),
-                hovertemplate=(
-                    '<b>Year:</b> %{fullData.name}<br>'
-                    '<b>Month:</b> %{customdata}<br>'
-                    '<b>Capture Price:</b> €%{y:.1f}/MWh<extra></extra>'
-                ),
-                customdata=yd['month_date'].dt.strftime('%B'),
-                legendgroup=f'year_{year}', showlegend=False,
-                line_color=color_map[year],
+    fig.add_trace(
+        go.Scatter(
+            x=x_dates, y=ts[weighted_col],
+            name=f'{cfg.capture_metric_name} price (€/MWh)', mode='lines+markers',
+            line=dict(width=2, color=blue), marker=dict(size=4),
+            hovertemplate=(
+                '<b>Month:</b> %{customdata}<br>'
+                '<b>Capture Price:</b> €%{y:.1f}/MWh<extra></extra>'
             ),
-            row=row_cp, col=1, secondary_y=False,
-        )
+            customdata=hover_labels,
+            showlegend=True,
+        ),
+        row=row_cp, col=1,
+    )
     fig.update_yaxes(title_text=f'{cfg.capture_metric_name} price (€/MWh)',
                      row=row_cp, col=1)
-    fig.update_xaxes(title_text='', row=row_cp, col=1, tickmode='array',
-                     tickvals=month_ticks, ticktext=month_text, range=[0.5, 12.5])
+    fig.update_xaxes(title_text='', row=row_cp, col=1, type='date')
 
 
 # ----------------------------------------------------------------------- monthly table HTML
