@@ -17,6 +17,7 @@ Usage
 from __future__ import annotations
 
 import argparse
+import html
 import os
 import sys
 from typing import Any
@@ -735,6 +736,182 @@ def _add_remaining_monthly_lines(fig: go.Figure, monthly: pd.DataFrame,
 
 # ----------------------------------------------------------------------- monthly table HTML
 
+# --------------------------------------------------------------- HTML table UI
+
+# Standalone, dependency-free styling for the monthly summary table page.
+# Warm "Claude" brand palette (matches the PDF slides); theme-aware via
+# prefers-color-scheme with a manual override toggle (data-theme on <html>).
+_TABLE_CSS = """
+*{box-sizing:border-box}
+:root{
+  --bg:#FAF9F5; --panel:#FFFFFF; --panel2:#F3F0E8; --edge:#E5DFD0;
+  --ink:#1F1E1D; --ink-soft:#3D3929; --muted:#8C8377; --accent:#C96442;
+  --head-bg:#1F1E1D; --head-ink:#FAF9F5; --row-alt:#FBFAF7; --row-hover:#F1ECE1;
+  --shadow:0 1px 2px rgba(0,0,0,.05),0 10px 34px rgba(31,30,29,.07);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#1A1917; --panel:#242220; --panel2:#2A2825; --edge:#3A362F;
+  --ink:#F0EEE8; --ink-soft:#C9C4B8; --muted:#94897B; --accent:#E7A87C;
+  --head-bg:#0F0E0D; --head-ink:#F0EEE8; --row-alt:#201E1C; --row-hover:#2E2B27;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 34px rgba(0,0,0,.5);
+}}
+:root[data-theme="dark"]{
+  --bg:#1A1917; --panel:#242220; --panel2:#2A2825; --edge:#3A362F;
+  --ink:#F0EEE8; --ink-soft:#C9C4B8; --muted:#94897B; --accent:#E7A87C;
+  --head-bg:#0F0E0D; --head-ink:#F0EEE8; --row-alt:#201E1C; --row-hover:#2E2B27;
+  --shadow:0 1px 2px rgba(0,0,0,.4),0 10px 34px rgba(0,0,0,.5);
+}
+html,body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  -webkit-font-smoothing:antialiased;font-size:15px;line-height:1.45}
+.wrap{max-width:1500px;margin:0 auto;padding:32px 24px 56px}
+header.page{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;margin-bottom:22px}
+h1{font-size:1.55rem;font-weight:650;letter-spacing:-.015em;margin:0 0 6px;color:var(--ink)}
+.subtitle{color:var(--ink-soft);font-size:.95rem;max-width:70ch;margin:0}
+.chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+.chip{display:inline-flex;align-items:center;gap:6px;background:var(--panel2);
+  border:1px solid var(--edge);border-radius:999px;padding:5px 12px;font-size:.8rem;color:var(--ink-soft)}
+.chip b{color:var(--accent);font-weight:650;font-variant-numeric:tabular-nums}
+#themeToggle{flex:none;background:var(--panel2);border:1px solid var(--edge);color:var(--ink-soft);
+  border-radius:10px;width:40px;height:40px;font-size:1.1rem;cursor:pointer;line-height:1;
+  transition:background .15s,color .15s}
+#themeToggle:hover{background:var(--accent);color:#fff;border-color:var(--accent)}
+.card{background:var(--panel);border:1px solid var(--edge);border-radius:16px;
+  box-shadow:var(--shadow);overflow:hidden}
+.table-wrap{overflow:auto;max-height:82vh}
+table{border-collapse:separate;border-spacing:0;width:100%;font-variant-numeric:tabular-nums;
+  font-feature-settings:"tnum" 1}
+thead th{position:sticky;top:0;z-index:3;background:var(--head-bg);color:var(--head-ink);
+  font-weight:600;font-size:.72rem;letter-spacing:.02em;text-transform:uppercase;
+  padding:12px 12px;text-align:right;vertical-align:bottom;white-space:normal;min-width:74px;
+  border-bottom:2px solid var(--head-bg)}
+thead th.month{text-align:left;left:0;z-index:4}
+tbody th.month{position:sticky;left:0;z-index:2;background:var(--panel);text-align:left;
+  font-weight:600;color:var(--ink);white-space:nowrap}
+th,td{padding:8px 12px;border-bottom:1px solid var(--edge)}
+td.num{text-align:right;color:var(--ink-soft);white-space:nowrap}
+tbody tr:nth-child(even) th.month,tbody tr:nth-child(even) td{background:var(--row-alt)}
+tbody tr:nth-child(even) th.month{background:var(--row-alt)}
+tbody tr:hover th.month,tbody tr:hover td{background:var(--row-hover)}
+tr.year-sep th,tr.year-sep td{border-top:2px solid var(--accent)}
+tfoot td{padding:14px 16px;color:var(--muted);font-size:.8rem;background:var(--panel2)}
+.legend{display:flex;flex-wrap:wrap;gap:18px;align-items:center}
+.legend .sw{display:inline-flex;align-items:center;gap:7px}
+.legend i{width:26px;height:12px;border-radius:3px;display:inline-block}
+.grad-cap{background:linear-gradient(90deg,rgba(214,69,58,.55),rgba(214,69,58,.05),rgba(46,160,67,.05),rgba(46,160,67,.5))}
+.grad-bad{background:linear-gradient(90deg,rgba(214,69,58,.04),rgba(214,69,58,.55))}
+@media (max-width:640px){.wrap{padding:18px 10px 40px}h1{font-size:1.2rem}}
+"""
+
+_HEAT_GREEN = (46, 160, 67)
+_HEAT_RED = (214, 69, 58)
+
+
+def _heat_style(kind: str, val: float | None, hi: float) -> str:
+    """Inline background for a heat-mapped cell (rgba overlay, theme-safe).
+
+    kind='diverge100' → green above the 100% baseload, red below (capture rate).
+    kind='bad'        → sequential red scaled to the column max (curtailment etc).
+    """
+    if val is None or pd.isna(val):
+        return ''
+    if kind == 'diverge100':
+        t = max(-1.0, min(1.0, (val - 100.0) / 40.0))
+        r, g, b = _HEAT_GREEN if t >= 0 else _HEAT_RED
+        alpha = abs(t) * 0.5
+    else:  # 'bad' — 0 is neutral, column max is fully saturated
+        span = hi if hi and hi > 0 else 1.0
+        r, g, b = _HEAT_RED
+        alpha = min(1.0, val / span) * 0.55
+    if alpha < 0.02:
+        return ''
+    return f'background-color:rgba({r},{g},{b},{alpha:.3f});'
+
+
+def _render_summary_table_html(
+    title: str,
+    subtitle: str,
+    header_values: list[str],
+    cells_values: list[list[str]],
+    heat: dict[int, tuple[list[float], str]],
+) -> str:
+    """Render a styled, self-contained HTML page for the monthly summary table."""
+    # Coerce every column to a plain list so positional/negative indexing is
+    # safe (some columns arrive as pandas Series with a label index).
+    cells = [list(col) for col in cells_values]
+    n_cols = len(header_values)
+    n_rows = len(cells[0]) if cells else 0
+
+    heat_hi = {ci: max((v for v in vals if v is not None and not pd.isna(v)),
+                       default=1.0)
+               for ci, (vals, _) in heat.items()}
+
+    thead = '<tr>' + ''.join(
+        f'<th class="{"month" if ci == 0 else "num"}" scope="col">'
+        f'{html.escape(h)}</th>'
+        for ci, h in enumerate(header_values)
+    ) + '</tr>'
+
+    body_rows: list[str] = []
+    prev_year: str | None = None
+    for i in range(n_rows):
+        month = str(cells[0][i])
+        year = month[:4]
+        tr_cls = ' class="year-sep"' if prev_year and year != prev_year else ''
+        prev_year = year
+        row = [f'<th scope="row" class="month">{html.escape(month)}</th>']
+        for ci in range(1, n_cols):
+            val = str(cells[ci][i])
+            style = ''
+            if ci in heat:
+                style = _heat_style(heat[ci][1], heat[ci][0][i], heat_hi[ci])
+            attr = f' style="{style}"' if style else ''
+            row.append(f'<td class="num"{attr}>{html.escape(val)}</td>')
+        body_rows.append(f'<tr{tr_cls}>' + ''.join(row) + '</tr>')
+
+    latest = str(cells[0][0]) if n_rows else '—'
+    earliest = str(cells[0][-1]) if n_rows else '—'
+    chips = (
+        f'<span class="chip">Coverage <b>{html.escape(earliest)}</b> → '
+        f'<b>{html.escape(latest)}</b></span>'
+        f'<span class="chip"><b>{n_rows}</b> months</span>'
+        f'<span class="chip"><b>{n_cols}</b> metrics</span>'
+    )
+
+    return (
+        '<!DOCTYPE html>\n<html lang="en">\n<head>\n'
+        '<meta charset="utf-8"/>\n'
+        '<meta name="viewport" content="width=device-width, initial-scale=1"/>\n'
+        f'<title>{html.escape(title)}</title>\n'
+        f'<style>{_TABLE_CSS}</style>\n</head>\n<body>\n'
+        '<div class="wrap">\n'
+        '<header class="page"><div>'
+        f'<h1>{html.escape(title)}</h1>'
+        f'<p class="subtitle">{html.escape(subtitle)}</p>'
+        f'<div class="chips">{chips}</div>'
+        '</div>'
+        '<button id="themeToggle" title="Toggle light / dark" aria-label="Toggle theme">◐</button>'
+        '</header>\n'
+        '<div class="card"><div class="table-wrap"><table>\n'
+        f'<thead>{thead}</thead>\n'
+        f'<tbody>\n{"".join(body_rows)}\n</tbody>\n'
+        '<tfoot><tr><td colspan="' + str(n_cols) + '"><div class="legend">'
+        '<span class="sw"><i class="grad-cap"></i>Capture rate: red below / green above the 100% baseload</span>'
+        '<span class="sw"><i class="grad-bad"></i>Curtailment &amp; negative-price hours: deeper red = higher</span>'
+        '<span>Source: EPEX day-ahead spot prices &times; NED.nl generation, NL.</span>'
+        '</div></td></tr></tfoot>\n'
+        '</table></div></div>\n</div>\n'
+        '<script>'
+        'var r=document.documentElement,b=document.getElementById("themeToggle");'
+        'b.addEventListener("click",function(){'
+        'var d=matchMedia("(prefers-color-scheme: dark)").matches,'
+        'cur=r.getAttribute("data-theme")||(d?"dark":"light");'
+        'r.setAttribute("data-theme",cur==="dark"?"light":"dark");});'
+        '</script>\n'
+        '</body>\n</html>\n'
+    )
+
+
 def _write_monthly_table_html(monthly_summary: pd.DataFrame, cfg: TechConfig) -> None:
     """Standalone HTML with the monthly summary table only."""
     is_solar = (cfg.power_label == 'PV')
@@ -809,12 +986,31 @@ def _write_monthly_table_html(monthly_summary: pd.DataFrame, cfg: TechConfig) ->
         title = (f'Monthly Summary Table — {short} NL '
                  f'(EPEX spot prices + NED.nl {short} production)')
 
-    tbl = go.Figure(data=[go.Table(
-        header=dict(values=header_values, font=dict(size=10), align='left'),
-        cells=dict(values=cells_values, font=dict(size=9), align='left', height=20),
-    )])
-    tbl.update_layout(title_text=title, margin=dict(l=0, r=0, t=50, b=0))
-    tbl.write_html(cfg.out_monthly_table_html, auto_open=False, include_plotlyjs='cdn')
+    # Columns worth heat-mapping: capture rate around the 100% baseload
+    # (diverging) plus curtailment and negative-price hours (sequential red).
+    heat: dict[int, tuple[list[float], str]] = {
+        4: (rev['curtailment_pct'].tolist(), 'bad'),
+        5: (rev['neg_hours'].tolist(), 'bad'),
+        11: (rev['profile_factor'].tolist(), 'diverge100'),
+        12: (rev['profile_factor_excl_neg'].tolist(), 'diverge100'),
+    }
+    unit = 'MWp DC' if is_solar else 'MW AC'
+    subtitle = (
+        f'Monthly market value of Dutch {cfg.short_label} on the EPEX day-ahead '
+        f'market, per {unit} installed. Newest month first; "excl. neg" variants '
+        f'drop negative-price settlement periods. Capture rate is the '
+        f'production-weighted price relative to the time-weighted baseload (100%).'
+    )
+
+    html_doc = _render_summary_table_html(
+        title=title,
+        subtitle=subtitle,
+        header_values=header_values,
+        cells_values=cells_values,
+        heat=heat,
+    )
+    with open(cfg.out_monthly_table_html, 'w', encoding='utf-8') as fh:
+        fh.write(html_doc)
 
 
 # ----------------------------------------------------------------------- yearly HTML
