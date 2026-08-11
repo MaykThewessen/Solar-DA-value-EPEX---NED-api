@@ -18,8 +18,6 @@ from __future__ import annotations
 
 import argparse
 import html
-import os
-import sys
 from typing import Any
 
 import matplotlib.pyplot as plt
@@ -35,6 +33,9 @@ from data_loader import (
 )
 from dashboard_common import (
     CLAUDE_PALETTE,
+    add_dt_hours,
+    compact_figure_arrays,
+    fmt_table_value,
     build_monthly_metric_by_year_fig,
     build_themed_slide_fig,
     build_yearly_summary_table_fig,
@@ -46,27 +47,6 @@ from dashboard_common import (
     year_color_map,
 )
 from tech_configs import TECHS, TechConfig
-
-
-# ----------------------------------------------------------------------- helpers
-
-def _fmt_number(x: float | None) -> str:
-    """Format with EU thousands separator (e.g. 24302 -> '24.302'). Empty for NaN."""
-    if x is None or pd.isna(x):
-        return ''
-    return f"{int(x):,}".replace(',', '.')
-
-
-def _fmt_gwp(x: float | None) -> str:
-    if x is None or pd.isna(x):
-        return ''
-    return f"{x:.1f}"
-
-
-def _fmt_percentage(x: float | None) -> str:
-    if x is None or pd.isna(x):
-        return ''
-    return f"{x:.0f}%"
 
 
 # ----------------------------------------------------------------------- pipeline
@@ -87,10 +67,7 @@ def _load_combined(cfg: TechConfig) -> tuple[pd.DataFrame, pd.DataFrame]:
     df[value_col] = df[cfg.prod_col] * df['DA_price']
 
     # Sort + per-row interval (vectorised). `_dt_h` handles hourly vs quarterly.
-    df = df.sort_values('time').reset_index(drop=True)
-    dt_h = df['time'].diff().dt.total_seconds().div(3600)
-    median = dt_h.median()
-    df['_dt_h'] = dt_h.fillna(median if pd.notna(median) else 0.25)
+    df = add_dt_hours(df)
 
     # Installed capacity via vectorised np.interp (replaces .apply lambda).
     anchors = load_capacity_points(cfg.capacity_csv)
@@ -166,10 +143,9 @@ def _build_monthly_summary(df: pd.DataFrame, cfg: TechConfig) -> pd.DataFrame:
     base['profile_factor'] = (
         (base[weighted] / base['Avg_DA_Price']) * 100
     ).round(1)
-    if cfg.power_label == 'PV':
-        base['Installed_Capacity_GWp_DC'] = (base['installed_capacity_MW'] / 1000).round(2)
-    else:
-        base['Installed_Capacity_MW_AC'] = base['installed_capacity_MW'].round(0)
+    # One capacity column for both technologies; the GWp-DC / GW-AC distinction
+    # lives in the header text, not in a second column name.
+    base['Installed_Capacity_GW'] = base['installed_capacity_MW'] / 1000
 
     # Excluding-negative-price metrics
     pos = df[df['DA_price'] >= 0].copy()
@@ -297,23 +273,25 @@ def _build_yearly_totals(df: pd.DataFrame, cfg: TechConfig) -> pd.DataFrame:
 
 
 def _make_year_summary_for_table(by_year: pd.DataFrame, df: pd.DataFrame,
-                                 anchors: pd.DataFrame,
-                                 cfg: TechConfig) -> pd.DataFrame:
-    """Add display columns (year_label, MWh-per-unit, GWh/TWh, etc.)."""
+                                 cfg: TechConfig) -> tuple[pd.DataFrame, int]:
+    """Add display columns (year_label, MWh-per-unit, GWh/TWh, etc.).
+
+    Returns (summary frame, last fully-observed calendar year).
+    """
     yst = by_year.copy()
     yst[f'Yearly_{cfg.power_label}_Energy_GWh'] = yst[f'Yearly_{cfg.power_label}_Energy_MWh'] / 1000
     yst[f'Yearly_{cfg.power_label}_Energy_TWh'] = yst[f'Yearly_{cfg.power_label}_Energy_MWh'] / 1_000_000
 
+    # Every per-unit metric divides by the same denominator: the time-average
+    # installed capacity over the year. Solar used to divide the incl-neg yield
+    # by the July-1 interpolated capacity while its excl-neg yield, market value
+    # and capture columns used the yearly average, so the two yield columns sat
+    # side by side without being comparable. The displayed capacity column is now
+    # that denominator, for both technologies.
     if cfg.power_label == 'PV':
-        # Mid-year (July 1) capacity, vectorised np.interp.
-        july_dates = pd.Series(pd.to_datetime(
-            [f'{int(y)}-07-01' for y in yst['year']], utc=True
-        ).tz_convert('Europe/Amsterdam'))
-        july_caps = interp_capacity(july_dates, anchors)
-        yst['Yearly_Installed_Capacity_GWp_DC'] = july_caps / 1000
+        yst['Yearly_Installed_Capacity_GWp_DC'] = yst['Yearly_Installed_Capacity_MW'] / 1000
         yst['Yearly_MWh_per_MWp'] = (
-            yst['Yearly_PV_Energy_MWh']
-            / (yst['Yearly_Installed_Capacity_GWp_DC'] * 1000)
+            yst['Yearly_PV_Energy_MWh'] / yst['Yearly_Installed_Capacity_MW']
         )
     else:
         yst['Yearly_Installed_Capacity_MW_AC'] = yst['Yearly_Installed_Capacity_MW']
@@ -388,11 +366,10 @@ def _write_subplot_html(df: pd.DataFrame, monthly: pd.DataFrame, yst: pd.DataFra
         highlight_recent=cfg.year_highlight_recent,
     )
 
+    _add_yearly_table(fig, yst, cfg)
     if is_solar:
         _add_solar_subplot_row1(fig, df, anchors)
-        _add_solar_yearly_table(fig, yst, cfg)
     else:
-        _add_wind_yearly_table(fig, yst, cfg)
         _add_wind_subplot_row1_energy(fig, monthly, years_sorted, color_map)
         _add_wind_subplot_row2_capacity(fig, df, anchors, cfg)
 
@@ -403,14 +380,14 @@ def _write_subplot_html(df: pd.DataFrame, monthly: pd.DataFrame, yst: pd.DataFra
         legend=dict(x=1.02, y=1, xanchor='left', yanchor='top'),
     )
 
+    compact_figure_arrays(fig)
     fig.write_html(cfg.out_production_html, auto_open=False, include_plotlyjs='cdn')
 
 
 def _add_solar_subplot_row1(fig: go.Figure, df: pd.DataFrame,
                             anchors: pd.DataFrame) -> None:
-    hourly = df[['time', 'Solar_production_MWh', 'installed_capacity_MW']].copy()
+    hourly = df[['time', 'Solar_production_MWh']].copy()
     hourly['Hourly_PV_Power_GW'] = hourly['Solar_production_MWh'] * 4 / 1000
-    hourly['Hourly_Installed_Capacity_GW'] = hourly['installed_capacity_MW'] / 1000
     fig.add_trace(
         go.Scatter(
             x=hourly['time'], y=hourly['Hourly_PV_Power_GW'],
@@ -435,86 +412,93 @@ def _add_solar_subplot_row1(fig: go.Figure, df: pd.DataFrame,
     fig.update_xaxes(title_text='', row=1, col=1)
 
 
-def _add_solar_yearly_table(fig: go.Figure, yst: pd.DataFrame, cfg: TechConfig) -> None:
-    cells_values = [
-        yst['year_label'][::-1],
-        [_fmt_gwp(x) for x in yst['Yearly_Installed_Capacity_GWp_DC'][::-1]],
-        [_fmt_gwp(x) for x in yst['Yearly_PV_Energy_TWh'][::-1]],
-        [_fmt_number(x) for x in yst['Yearly_MWh_per_MWp'][::-1]],
-        [_fmt_number(x) for x in yst['Yearly_MWh_per_MWp_excl_neg'][::-1]],
-        [_fmt_percentage(x) for x in yst['Yearly_Curtailment_Pct'][::-1]],
-        [_fmt_number(x) for x in yst['Yearly_Neg_Hours'][::-1]],
-        [_fmt_number(x) for x in yst['Yearly_Value_per_MWp_DC_EUR'][::-1]],
-        [_fmt_number(x) for x in yst['Yearly_Value_per_MWp_DC_EUR_excl_neg'][::-1]],
-        [_fmt_number(x) for x in yst['Yearly_Avg_DA_Price'][::-1]],
-        [_fmt_number(x) for x in yst['Yearly_PV_Weighted_Price'][::-1]],
-        [_fmt_number(x) for x in yst['Yearly_PV_Weighted_Price_excl_neg'][::-1]],
-        [_fmt_percentage(x) for x in yst['Yearly_Profile_Factor'][::-1]],
-        [_fmt_percentage(x) for x in yst['Yearly_Profile_Factor_excl_neg'][::-1]],
-    ]
-    fig.add_trace(
-        go.Table(
-            header=dict(
-                values=['Year (* = preliminary)',
-                        'Installed PV Capacity in NL (GWp) Average',
-                        'PV Energy produced (TWh/y) (NED.nl)',
-                        'MWh yield / MWp installed',
-                        'MWh yield / MWp (excl. neg)',
-                        'Curtailment (%)',
-                        'Negative-price hours (h/y)',
-                        'Annual Market value (EUR/MWp/y)',
-                        'Market value EUR/MWp/y (excl. neg)',
-                        'Day-Ahead linear avg price (EUR/MWh)',
-                        'Solar capture price (€/MWh)',
-                        'Solar capture price (€/MWh) excl. neg',
-                        'Solar capture rate (%)',
-                        'Solar capture rate (%) excl. neg'],
-                font=dict(size=10), align='left',
-            ),
-            cells=dict(values=cells_values, font=dict(size=9), align='left', height=20),
-        ),
-        row=7, col=1,
-    )
+def _yearly_metric_columns(cfg: TechConfig) -> list[dict[str, Any]]:
+    """The 14 yearly metrics in display order — the one spec both tables render.
 
+    The subplot-HTML table and the themed PDF table used to carry separate
+    hardcoded header and format lists. They drifted: the HTML truncated where the
+    PDF rounded, used different thousands separators, and labelled the capacity
+    column "Average" for solar (which showed a mid-year value) and "mid-year" for
+    wind (which showed an average) — exactly backwards.
 
-def _add_wind_yearly_table(fig: go.Figure, yst: pd.DataFrame, cfg: TechConfig) -> None:
+    Each entry: `col` (column in `yst`), `fmt` (format spec, see
+    `fmt_table_value`), `html` / `pdf` header markup, `width` (PDF only).
+    """
+    is_solar = (cfg.power_label == 'PV')
+    tech = cfg.power_label                          # 'PV' | 'Wind'
+    unit = cfg.cap_per_unit_short                   # 'MWp' | 'MW'
     short = cfg.short_label
     capture = cfg.capture_metric_name
+    cap_col = ('Yearly_Installed_Capacity_GWp_DC' if is_solar
+               else 'Yearly_Installed_Capacity_GW_AC')
+    cap_unit = cfg.cap_unit_short                   # 'GWp' | 'GW'
+    # Wind capacity is small enough (1-8 GW) that a second decimal carries real
+    # information; solar spans 3-31 GWp where it would be noise.
+    cap_fmt = '{:,.1f}' if is_solar else '{:,.2f}'
+    value_col = ('Yearly_Value_per_MWp_DC_EUR' if is_solar
+                 else 'Yearly_Value_per_MW_AC_EUR')
+    grey = '<span style="font-size:10px;color:#8C8377">'
+
+    def spec(col, fmt, html_header, pdf_header, width):
+        return dict(col=col, fmt=fmt, html=html_header, pdf=pdf_header, width=width)
+
+    return [
+        spec('year_label', '{}',
+             'Year (* = preliminary)',
+             f'Year<br>{grey}(* preliminary)</span>', 60),
+        spec(cap_col, cap_fmt,
+             f'Installed {short} capacity in NL ({cap_unit}) yearly average',
+             f'Installed {short}<br>capacity ({cap_unit})<br>{grey}yearly avg</span>', 80),
+        spec(f'Yearly_{tech}_Energy_TWh', '{:,.1f}',
+             f'{short} Energy produced (TWh/y) (NED.nl)',
+             f'{short} energy<br>(TWh/y)<br>{grey}NED.nl</span>', 70),
+        spec(f'Yearly_MWh_per_{unit}', '{:,.0f}',
+             f'MWh yield / {unit} installed',
+             f'MWh / {unit}<br>installed', 70),
+        spec(f'Yearly_MWh_per_{unit}_excl_neg', '{:,.0f}',
+             f'MWh yield / {unit} (excl. neg)',
+             f'MWh / {unit}<br>{grey}excl. neg</span>', 75),
+        spec('Yearly_Curtailment_Pct', '{:.0f}%',
+             'Curtailment (%)',
+             'Curtailment<br>(%)', 65),
+        spec('Yearly_Neg_Hours', '{:,.0f}',
+             'Negative-price hours (h/y)',
+             'Neg-price<br>hours (h/y)', 70),
+        spec(value_col, '{:,.0f}',
+             f'Annual Market value (EUR/{unit}/y)',
+             f'Market value<br>(€/{unit}/y)', 80),
+        spec(f'{value_col}_excl_neg', '{:,.0f}',
+             f'Market value EUR/{unit}/y (excl. neg)',
+             f'Market value<br>(€/{unit}/y)<br>{grey}excl. neg</span>', 85),
+        spec('Yearly_Avg_DA_Price', '{:,.0f}',
+             'Day-Ahead linear avg price (EUR/MWh)',
+             'DA avg price<br>(€/MWh)', 75),
+        spec(f'Yearly_{tech}_Weighted_Price', '{:,.0f}',
+             f'{capture} price (€/MWh)',
+             'Capture price<br>(€/MWh)', 75),
+        spec(f'Yearly_{tech}_Weighted_Price_excl_neg', '{:,.0f}',
+             f'{capture} price (€/MWh) excl. neg',
+             f'Capture price<br>(€/MWh)<br>{grey}excl. neg</span>', 80),
+        spec('Yearly_Profile_Factor', '{:.0f}%',
+             f'{capture} rate (%)',
+             'Capture rate<br>(%)', 70),
+        spec('Yearly_Profile_Factor_excl_neg', '{:.0f}%',
+             f'{capture} rate (%) excl. neg',
+             f'Capture rate<br>(%)<br>{grey}excl. neg</span>', 80),
+    ]
+
+
+def _add_yearly_table(fig: go.Figure, yst: pd.DataFrame, cfg: TechConfig) -> None:
+    """Row-7 summary table of the subplot HTML, newest year first."""
+    columns = _yearly_metric_columns(cfg)
     cells_values = [
-        yst['year_label'][::-1].tolist(),
-        [f"{x:.2f}" if pd.notna(x) else '' for x in yst['Yearly_Installed_Capacity_GW_AC'][::-1]],
-        [f"{x:.1f}" if pd.notna(x) else '' for x in yst['Yearly_Wind_Energy_TWh'][::-1]],
-        [_fmt_number(x) for x in yst['Yearly_MWh_per_MW'][::-1]],
-        [_fmt_number(x) for x in yst['Yearly_MWh_per_MW_excl_neg'][::-1]],
-        [_fmt_percentage(x) for x in yst['Yearly_Curtailment_Pct'][::-1]],
-        [_fmt_number(x) for x in yst['Yearly_Neg_Hours'][::-1]],
-        [_fmt_number(x) for x in yst['Yearly_Value_per_MW_AC_EUR'][::-1]],
-        [_fmt_number(x) for x in yst['Yearly_Value_per_MW_AC_EUR_excl_neg'][::-1]],
-        [_fmt_number(x) for x in yst['Yearly_Avg_DA_Price'][::-1]],
-        [_fmt_number(x) for x in yst['Yearly_Wind_Weighted_Price'][::-1]],
-        [_fmt_number(x) for x in yst['Yearly_Wind_Weighted_Price_excl_neg'][::-1]],
-        [_fmt_percentage(x) for x in yst['Yearly_Profile_Factor'][::-1]],
-        [_fmt_percentage(x) for x in yst['Yearly_Profile_Factor_excl_neg'][::-1]],
+        [fmt_table_value(v, c['fmt']) for v in yst[c['col']][::-1]]
+        for c in columns
     ]
     fig.add_trace(
         go.Table(
-            header=dict(
-                values=['Year (* = preliminary)',
-                        f'Installed {short} Capacity in NL (GW) mid-year',
-                        f'{short} Energy produced (TWh/y) (NED.nl)',
-                        'MWh yield / MW installed',
-                        'MWh yield / MW (excl. neg)',
-                        'Curtailment (%)',
-                        'Negative-price hours (h/y)',
-                        'Annual Market value (EUR/MW/y)',
-                        'Market value EUR/MW/y (excl. neg)',
-                        'Day-Ahead linear avg price (EUR/MWh)',
-                        f'{capture} price (€/MWh)',
-                        f'{capture} price (€/MWh) excl. neg',
-                        f'{capture} rate (%)',
-                        f'{capture} rate (%) excl. neg'],
-                font=dict(size=10), align='left',
-            ),
+            header=dict(values=[c['html'] for c in columns],
+                        font=dict(size=10), align='left'),
             cells=dict(values=cells_values, font=dict(size=9), align='left', height=20),
         ),
         row=7, col=1,
@@ -558,10 +542,10 @@ def _add_wind_subplot_row1_energy(fig: go.Figure, monthly: pd.DataFrame,
 
 def _add_wind_subplot_row2_capacity(fig: go.Figure, df: pd.DataFrame,
                                     anchors: pd.DataFrame, cfg: TechConfig) -> None:
-    # Fitted curve on a daily grid from 2018-01-01 to cfg.capacity_curve_end.
-    start_date = pd.Timestamp('2018-01-01', tz='Europe/Amsterdam')
-    end_date = cfg.capacity_curve_end or pd.Timestamp('2030-12-31', tz='Europe/Amsterdam')
-    date_range = pd.date_range(start=start_date, end=end_date, freq='D')
+    # Fitted curve on a daily grid spanning the anchor series itself, so the
+    # subplot always covers exactly the range the capacity CSV describes.
+    date_range = pd.date_range(start=anchors['date'].min(),
+                               end=anchors['date'].max(), freq='D')
     fitted_capacity = interp_capacity(pd.Series(date_range), anchors)
 
     fig.add_trace(
@@ -608,11 +592,6 @@ def _add_remaining_monthly_lines(fig: go.Figure, monthly: pd.DataFrame,
     value_col = f'Monthly_Value_per_{cfg.cap_per_unit_short}_AC_EUR' if cfg.power_label == 'Wind' \
                 else 'Monthly_Value_per_MWp_DC_EUR'
     weighted_col = f'Monthly_{cfg.power_label}_Power_Weighted_DA_Price'
-
-    if is_solar:
-        row_energy = 2  # PV Energy MWh
-    else:
-        row_energy = None  # already handled in wind row 1
 
     row_yield = 3
     row_value = 4
@@ -912,88 +891,67 @@ def _render_summary_table_html(
     )
 
 
+def _monthly_metric_columns(cfg: TechConfig) -> list[dict[str, Any]]:
+    """The 13 monthly metrics in display order, for one technology.
+
+    Each entry: `col` (column in the monthly summary), `fmt`, `header`, and an
+    optional `heat` ('bad' | 'diverge100') marking it for background shading.
+    Carrying `heat` on the column itself retires the old `{4: …, 5: …, 11: …}`
+    index map, which silently mis-shaded any column that moved.
+    """
+    is_solar = (cfg.power_label == 'PV')
+    tech = cfg.power_label                          # 'PV' | 'Wind'
+    unit = cfg.cap_per_unit_short                   # 'MWp' | 'MW'
+    short = cfg.short_label
+    capture = cfg.capture_metric_name
+    cap_unit = 'GWp DC' if is_solar else 'GW AC'
+    cap_fmt = '{:,.1f}' if is_solar else '{:,.2f}'
+    value_col = 'Value_per_MWp_DC_EUR' if is_solar else 'Value_per_MW_AC_EUR'
+
+    def spec(col, fmt, header, heat=None):
+        return dict(col=col, fmt=fmt, header=header, heat=heat)
+
+    return [
+        spec('month', '{}', 'Month'),
+        spec('Installed_Capacity_GW', cap_fmt, f'{short} capacity NL ({cap_unit})'),
+        spec(f'Total_{tech}_Energy_GWh', '{:,.0f}',
+             f'{short} Energy produced (GWh/month) (NED.nl)'),
+        spec(f'MWh_per_{unit}_excl_neg', '{:,.0f}', f'MWh yield / {unit} (excl. neg)'),
+        spec('curtailment_pct', '{:.0f}%', 'Curtailment (%)', heat='bad'),
+        spec('neg_hours', '{:,.0f}', 'Negative-price hours (h)', heat='bad'),
+        # Per *month*, not per year: these are the month's revenue divided by
+        # installed capacity. The header said "/year" while showing a twelfth of it.
+        spec(value_col, '{:,.0f}', f'Market value {short} (EUR/{unit}/month)'),
+        spec(f'{value_col}_excl_neg', '{:,.0f}',
+             f'Market value EUR/{unit}/month (excl. neg)'),
+        spec('Avg_DA_Price', '{:,.0f}', 'Day-Ahead average price (EUR/MWh)'),
+        spec(f'{tech}_Weighted_Price', '{:,.0f}', f'{capture} price (€/MWh)'),
+        spec(f'{tech}_Weighted_Price_excl_neg', '{:,.0f}',
+             f'{capture} price (€/MWh) excl. neg'),
+        spec('profile_factor', '{:.0f}%', f'{capture} rate (%)', heat='diverge100'),
+        spec('profile_factor_excl_neg', '{:.0f}%', f'{capture} rate (%) excl. neg',
+             heat='diverge100'),
+    ]
+
+
 def _write_monthly_table_html(monthly_summary: pd.DataFrame, cfg: TechConfig) -> None:
     """Standalone HTML with the monthly summary table only."""
     is_solar = (cfg.power_label == 'PV')
     rev = monthly_summary.sort_values('month', ascending=False).reset_index(drop=True)
+    columns = _monthly_metric_columns(cfg)
 
-    if is_solar:
-        header_values = [
-            'Month', 'Solar PV capacity NL (GWp)',
-            'PV Energy produced (GWh/month) (NED.nl)',
-            'MWh yield / MWp (excl. neg)', 'Curtailment (%)',
-            'Negative-price hours (h)', 'Market value PV (EUR/MWp/year)',
-            'Market value EUR/MWp/y (excl. neg)',
-            'Day-Ahead average price (EUR/MWh)',
-            'Solar capture price (€/MWh)',
-            'Solar capture price (€/MWh) excl. neg',
-            'Solar capture rate (%)', 'Solar capture rate (%) excl. neg',
-        ]
-        cap_col = 'Installed_Capacity_GWp_DC'
-        energy_col = 'Total_PV_Energy_GWh'
-        yield_col = 'MWh_per_MWp_excl_neg'
-        value_col = 'Value_per_MWp_DC_EUR'
-        value_col_excl = 'Value_per_MWp_DC_EUR_excl_neg'
-        weighted_col = 'PV_Weighted_Price'
-        weighted_col_excl = 'PV_Weighted_Price_excl_neg'
-        cells_values = [
-            rev['month'].astype(str),
-            [_fmt_gwp(x) for x in rev[cap_col]],
-            [_fmt_number(x) for x in rev[energy_col].round(0)],
-            [_fmt_number(x) for x in rev[yield_col].round(0)],
-            [_fmt_percentage(x) for x in rev['curtailment_pct']],
-            [_fmt_number(x) for x in rev['neg_hours']],
-            [_fmt_number(x) for x in rev[value_col].round(0)],
-            [_fmt_number(x) for x in rev[value_col_excl].round(0)],
-            [_fmt_number(x) for x in rev['Avg_DA_Price'].round(0)],
-            [_fmt_number(x) for x in rev[weighted_col].round(0)],
-            [_fmt_number(x) for x in rev[weighted_col_excl].round(0)],
-            [_fmt_percentage(x) for x in rev['profile_factor']],
-            [_fmt_percentage(x) for x in rev['profile_factor_excl_neg']],
-        ]
-        title = ('Monthly Summary Table (Analysis on PV value (NL), '
-                 'EPEX spot prices + PV production of NED.nl)')
-    else:
-        short = cfg.short_label
-        capture = cfg.capture_metric_name
-        header_values = [
-            'Month', f'{short} generation capacity NL (GW AC)',
-            f'{short} Energy produced (GWh/month) (NED.nl)',
-            'MWh yield / MW (excl. neg)', 'Curtailment (%)',
-            'Negative-price hours (h)',
-            f'Market value {short} (EUR/MW/year)',
-            'Market value EUR/MW/y (excl. neg)',
-            'Day-Ahead average price (EUR/MWh)',
-            f'{capture} price (€/MWh)',
-            f'{capture} price (€/MWh) excl. neg',
-            f'{capture} rate (%)', f'{capture} rate (%) excl. neg',
-        ]
-        cells_values = [
-            rev['month'].astype(str),
-            [f"{x/1000:.2f}" if pd.notna(x) else '' for x in rev['Installed_Capacity_MW_AC']],
-            [_fmt_number(x) for x in rev['Total_Wind_Energy_GWh']],
-            [_fmt_number(x) for x in rev['MWh_per_MW_excl_neg'].round(0)],
-            [_fmt_percentage(x) for x in rev['curtailment_pct']],
-            [_fmt_number(x) for x in rev['neg_hours']],
-            [_fmt_number(x) for x in rev['Value_per_MW_AC_EUR']],
-            [_fmt_number(x) for x in rev['Value_per_MW_AC_EUR_excl_neg'].round(0)],
-            [_fmt_number(x) for x in rev['Avg_DA_Price']],
-            [_fmt_number(x) for x in rev['Wind_Weighted_Price']],
-            [_fmt_number(x) for x in rev['Wind_Weighted_Price_excl_neg'].round(0)],
-            [_fmt_percentage(x) for x in rev['profile_factor']],
-            [_fmt_percentage(x) for x in rev['profile_factor_excl_neg']],
-        ]
-        title = (f'Monthly Summary Table — {short} NL '
-                 f'(EPEX spot prices + NED.nl {short} production)')
-
-    # Columns worth heat-mapping: capture rate around the 100% baseload
-    # (diverging) plus curtailment and negative-price hours (sequential red).
+    cells_values = [
+        rev[c['col']].astype(str).tolist() if c['col'] == 'month'
+        else [fmt_table_value(v, c['fmt']) for v in rev[c['col']]]
+        for c in columns
+    ]
+    header_values = [c['header'] for c in columns]
     heat: dict[int, tuple[list[float], str]] = {
-        4: (rev['curtailment_pct'].tolist(), 'bad'),
-        5: (rev['neg_hours'].tolist(), 'bad'),
-        11: (rev['profile_factor'].tolist(), 'diverge100'),
-        12: (rev['profile_factor_excl_neg'].tolist(), 'diverge100'),
+        i: (rev[c['col']].tolist(), c['heat'])
+        for i, c in enumerate(columns) if c['heat']
     }
+    title = (f'Monthly Summary Table — {cfg.short_label} NL '
+             f'(EPEX day-ahead prices x NED.nl generation)')
     unit = 'MWp DC' if is_solar else 'MW AC'
     subtitle = (
         f'Monthly market value of Dutch {cfg.short_label} on the EPEX day-ahead '
@@ -1123,6 +1081,7 @@ def _write_yearly_slides_html(yst: pd.DataFrame, last_complete_y: int,
         )],
         legend=dict(x=1.02, y=1, xanchor='left', yanchor='top'),
     )
+    compact_figure_arrays(slides_fig)
     slides_fig.write_html(cfg.out_yearly_html, auto_open=False, include_plotlyjs='cdn')
 
 
@@ -1263,11 +1222,14 @@ def _build_pdf(yst: pd.DataFrame, monthly_summary: pd.DataFrame,
         for s in pdf_slides
     ]
 
-    # Monthly capture-rate-by-year page.
+    # Monthly capture-rate-by-year page: the three most recent years present in
+    # the data. Hardcoding (2023, 2024, 2025) silently dropped each new year.
     if cfg.emit_monthly_pdf_page:
+        months = monthly_summary['month'].astype(str)
+        recent_years = sorted(months.str.slice(0, 4).astype(int).unique())[-3:]
         monthly_fig = build_monthly_metric_by_year_fig(
             monthly_summary, value_col='profile_factor',
-            years_to_plot=(2023, 2024, 2025),
+            years_to_plot=recent_years,
             title=f'Monthly {cfg.capture_metric_name_title} Rate',
             subtitle='Netherlands · capture price ÷ Day-Ahead average · by year',
             ytitle='%', brand=brand, source_date=source_date,
@@ -1276,7 +1238,7 @@ def _build_pdf(yst: pd.DataFrame, monthly_summary: pd.DataFrame,
         slide_pages.append(dict(shape='slide', fig=monthly_fig))
 
     # Final yearly-summary table page.
-    table_columns = _build_table_columns(cfg, is_solar)
+    table_columns = _build_table_columns(cfg)
     table_fig = build_yearly_summary_table_fig(
         yst_s, table_columns, brand=brand,
         title=(f'Yearly {cfg.short_label} Market Summary'
@@ -1291,69 +1253,11 @@ def _build_pdf(yst: pd.DataFrame, monthly_summary: pd.DataFrame,
     print(f'PDF written: {cfg.out_yearly_pdf}')
 
 
-def _build_table_columns(cfg: TechConfig, is_solar: bool) -> list[dict[str, Any]]:
-    """The 14-column spec used by `build_yearly_summary_table_fig`."""
-    grey = '<span style="font-size:10px;color:#8C8377">'
-    if is_solar:
-        return [
-            dict(col='year_label',
-                 header=f'Year<br>{grey}(* preliminary)</span>', width=60),
-            dict(col='Yearly_Installed_Capacity_GWp_DC', fmt='{:,.1f}',
-                 header=f'Installed PV<br>capacity (GWp)<br>{grey}avg</span>', width=80),
-            dict(col='Yearly_PV_Energy_TWh', fmt='{:,.1f}',
-                 header=f'PV energy<br>(TWh/y)<br>{grey}NED.nl</span>', width=70),
-            dict(col='Yearly_MWh_per_MWp', fmt='{:,.0f}',
-                 header='MWh / MWp<br>installed', width=70),
-            dict(col='Yearly_MWh_per_MWp_excl_neg', fmt='{:,.0f}',
-                 header=f'MWh / MWp<br>{grey}excl. neg</span>', width=75),
-            dict(col='Yearly_Curtailment_Pct', fmt='{:.0f}%',
-                 header='Curtailment<br>(%)', width=65),
-            dict(col='Yearly_Neg_Hours', fmt='{:,.0f}',
-                 header='Neg-price<br>hours (h/y)', width=70),
-            dict(col='Yearly_Value_per_MWp_DC_EUR', fmt='{:,.0f}',
-                 header='Market value<br>(€/MWp/y)', width=80),
-            dict(col='Yearly_Value_per_MWp_DC_EUR_excl_neg', fmt='{:,.0f}',
-                 header=f'Market value<br>(€/MWp/y)<br>{grey}excl. neg</span>', width=85),
-            dict(col='Yearly_Avg_DA_Price', fmt='{:,.0f}',
-                 header='DA avg price<br>(€/MWh)', width=75),
-            dict(col='Yearly_PV_Weighted_Price', fmt='{:,.0f}',
-                 header='Capture price<br>(€/MWh)', width=75),
-            dict(col='Yearly_PV_Weighted_Price_excl_neg', fmt='{:,.0f}',
-                 header=f'Capture price<br>(€/MWh)<br>{grey}excl. neg</span>', width=80),
-            dict(col='Yearly_Profile_Factor', fmt='{:.0f}%',
-                 header='Capture rate<br>(%)', width=70),
-            dict(col='Yearly_Profile_Factor_excl_neg', fmt='{:.0f}%',
-                 header=f'Capture rate<br>(%)<br>{grey}excl. neg</span>', width=80),
-        ]
+def _build_table_columns(cfg: TechConfig) -> list[dict[str, Any]]:
+    """Project the shared yearly spec onto `build_yearly_summary_table_fig`'s schema."""
     return [
-        dict(col='year_label',
-             header=f'Year<br>{grey}(* preliminary)</span>', width=60),
-        dict(col='Yearly_Installed_Capacity_GW_AC', fmt='{:,.1f}',
-             header=f'Installed Wind<br>capacity (GW)<br>{grey}avg</span>', width=80),
-        dict(col='Yearly_Wind_Energy_TWh', fmt='{:,.1f}',
-             header=f'Wind energy<br>(TWh/y)<br>{grey}NED.nl</span>', width=70),
-        dict(col='Yearly_MWh_per_MW', fmt='{:,.0f}',
-             header='MWh / MW<br>installed', width=70),
-        dict(col='Yearly_MWh_per_MW_excl_neg', fmt='{:,.0f}',
-             header=f'MWh / MW<br>{grey}excl. neg</span>', width=75),
-        dict(col='Yearly_Curtailment_Pct', fmt='{:.0f}%',
-             header='Curtailment<br>(%)', width=65),
-        dict(col='Yearly_Neg_Hours', fmt='{:,.0f}',
-             header='Neg-price<br>hours (h/y)', width=70),
-        dict(col='Yearly_Value_per_MW_AC_EUR', fmt='{:,.0f}',
-             header='Market value<br>(€/MW/y)', width=80),
-        dict(col='Yearly_Value_per_MW_AC_EUR_excl_neg', fmt='{:,.0f}',
-             header=f'Market value<br>(€/MW/y)<br>{grey}excl. neg</span>', width=85),
-        dict(col='Yearly_Avg_DA_Price', fmt='{:,.0f}',
-             header='DA avg price<br>(€/MWh)', width=75),
-        dict(col='Yearly_Wind_Weighted_Price', fmt='{:,.0f}',
-             header='Capture price<br>(€/MWh)', width=75),
-        dict(col='Yearly_Wind_Weighted_Price_excl_neg', fmt='{:,.0f}',
-             header=f'Capture price<br>(€/MWh)<br>{grey}excl. neg</span>', width=80),
-        dict(col='Yearly_Profile_Factor', fmt='{:.0f}%',
-             header='Capture rate<br>(%)', width=70),
-        dict(col='Yearly_Profile_Factor_excl_neg', fmt='{:.0f}%',
-             header=f'Capture rate<br>(%)<br>{grey}excl. neg</span>', width=80),
+        dict(col=c['col'], fmt=c['fmt'], header=c['pdf'], width=c['width'])
+        for c in _yearly_metric_columns(cfg)
     ]
 
 
@@ -1387,10 +1291,13 @@ def _build_monthly_per_tech_table(monthly: pd.DataFrame, cfg: TechConfig) -> pd.
 
 def run_for(cfg: TechConfig) -> None:
     """End-to-end: load → derive → write three HTMLs + one matplotlib QA PDF + slide PDF."""
-    os.system('clear') if sys.stdout.isatty() else None
-    print(f"=== {cfg.name} ({cfg.slug}) ===")
+    print(f"\n=== {cfg.name} ({cfg.slug}) ===")
 
     df, anchors = _load_combined(cfg)
+
+    # TODO(you): release the DuckDB read lock here — everything below this line
+    # is pandas/plotly on in-memory frames and touches no database.
+    # See data_loader.close().
 
     _print_capacity_banner(cfg, anchors)
     _save_capacity_qa_plot(cfg, df, anchors)
@@ -1410,7 +1317,7 @@ def run_for(cfg: TechConfig) -> None:
     # Year aggregations (single multi-column agg).
     yearly_totals = _build_yearly_totals(df_keys, cfg)
 
-    yst, last_complete_y = _make_year_summary_for_table(yearly_totals, df_complete, anchors, cfg)
+    yst, last_complete_y = _make_year_summary_for_table(yearly_totals, df_complete, cfg)
 
     # Rebuild a `monthly`-like frame (one row per month) for the subplot HTML.
     base_monthly = df_keys.groupby('month_date').agg({

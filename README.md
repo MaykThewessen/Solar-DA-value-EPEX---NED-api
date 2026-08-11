@@ -298,7 +298,7 @@ If `BIRDCURVE_DB` is unset the loaders default to `/Users/mayk/birdcurve_nl/data
 | `BIRDCURVE_DB` env var | shell | Point loaders at a different DuckDB file |
 | `tz=` arg on loaders | `data_loader.py` | Display timezone (default `Europe/Amsterdam`) |
 | `clip_future=False` | `load_da_prices()` | Keep day-ahead rows past today's midnight |
-| `capacity_points` list | `Dashboard_PV_Profile_Factor_vs_Capacity.py` | Anchor years for the installed-capacity fit — update as new CBS releases land |
+| `capacity_points_*.csv` | repo root, registered in `data_loader.CAPACITY_CSV` | Installed-capacity anchors, one file per technology — update as new CBS releases and scenario revisions land. Single source of truth: both dashboards read these, neither carries an inline list |
 
 ---
 

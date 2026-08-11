@@ -2,8 +2,14 @@
 """
 Concatenate monthly NED data files by year for a given source.
 
-Reads all data_export_NED_{SOURCE}_YYYYMM.csv files in the data/ directory
-and writes yearly concatenated files to data/yearly/{source_lower}_generation_YYYY.csv.
+Reads every data_NED_{SOURCE}_YYYYMM.csv found anywhere under data/ (they live
+in per-source subdirectories, e.g. data/NED_PV/) and writes yearly concatenated
+files to data/yearly/{stem}_generation_YYYY.csv.
+
+Matching is recursive and fails loudly: a source that matches no files raises
+rather than printing a note and exiting 0. The previous non-recursive pattern
+looked in data/ itself and silently matched nothing once the files moved into
+subdirectories, so every run reported success while producing no output.
 
 Usage:
     python concatenate_ned_data.py --source PV
@@ -43,9 +49,12 @@ def concatenate_ned_data_by_year(
 ) -> None:
     """Concatenate monthly NED data files for ``source`` into yearly CSVs.
 
-    Files are matched by the pattern
-    ``data_export_NED_{source}_YYYYMM.csv``. Output goes to
+    Files are matched recursively by ``data_NED_{source}_YYYYMM.csv`` anywhere
+    under ``data_dir``. Output goes to
     ``{data_dir}/yearly/{stem}_generation_{YYYY}.csv``.
+
+    Raises AssertionError if the pattern matches nothing, or if matched files
+    carry no parseable YYYYMM stamp — a missing source must surface, not pass.
     """
     if source not in SOURCE_SCHEMA:
         raise ValueError(
@@ -54,45 +63,41 @@ def concatenate_ned_data_by_year(
 
     src_col, out_col = SOURCE_SCHEMA[source]
     output_dir = output_dir or (data_dir / "yearly")
-    output_dir.mkdir(parents=True, exist_ok=True)
 
-    pattern = f"data_export_NED_{source}_*.csv"
-    files = sorted(data_dir.glob(pattern))
-
-    if not files:
-        print(f"No {source} data files found matching {data_dir}/{pattern}.")
-        return
+    pattern = f"data_NED_{source}_*.csv"
+    files = sorted(p for p in data_dir.rglob(pattern) if output_dir not in p.parents)
+    assert files, (
+        f"No {source} data files matched {data_dir}/**/{pattern}. "
+        f"Expected monthly exports under {data_dir}/NED_{source}/."
+    )
 
     # Group files by year via regex on stem.
-    year_re = re.compile(rf"data_export_NED_{re.escape(source)}_(\d{{4}})\d{{2}}\.csv$")
+    year_re = re.compile(rf"data_NED_{re.escape(source)}_(\d{{4}})\d{{2}}\.csv$")
     yearly_data: dict[str, list[Path]] = {}
     for path in files:
         match = year_re.search(path.name)
         if match:
             yearly_data.setdefault(match.group(1), []).append(path)
+    assert yearly_data, (
+        f"Matched {len(files)} {source} file(s) but none carried a YYYYMM stamp; "
+        f"first was {files[0].name}."
+    )
 
+    output_dir.mkdir(parents=True, exist_ok=True)
     stem = _output_stem(source)
 
     for year, file_list in sorted(yearly_data.items()):
         print(f"Processing year {year} with {len(file_list)} files...")
         file_list.sort()
 
+        # No try/except: an unreadable file or a renamed production column is a
+        # real ingestion fault. Swallowing it silently dropped whole months from
+        # the yearly output while the run still reported success.
         frames: list[pd.DataFrame] = []
         for path in file_list:
-            try:
-                df = pd.read_csv(path)
-                df = df[["time", src_col]].copy()
-                df = df.rename(columns={src_col: out_col})
-                frames.append(df)
-                print(f"  - Loaded {path.name}: {len(df)} rows")
-            except Exception as exc:  # noqa: BLE001 - mirror original behaviour
-                print(f"  - Error loading {path}: {exc}")
-                continue
-
-        if not frames:
-            print(f"  - No valid data found for year {year}")
-            print()
-            continue
+            df = pd.read_csv(path)[["time", src_col]].rename(columns={src_col: out_col})
+            frames.append(df)
+            print(f"  - Loaded {path.name}: {len(df)} rows")
 
         combined = pd.concat(frames, ignore_index=True)
         combined["time"] = pd.to_datetime(combined["time"], utc=True)

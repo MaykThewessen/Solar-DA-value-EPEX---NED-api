@@ -5,34 +5,33 @@ load NED generation → merge with DA prices → derive monthly/yearly metrics �
 emit two HTMLs and one themed PDF. The only differences are:
 
   * which loader to call
-  * the capacity-points CSV
+  * which capacity-points CSV (resolved via `data_loader.CAPACITY_CSV`)
   * unit labels (`MWp DC` for solar, `MW AC` for wind)
   * output filenames and slide titles
-  * x-axis end-date for the "capacity curve" subplot (only used by wind)
   * year-color palette (solar adds 2 warm hues for recent years; wind does not)
+  * PDF y-axis ranges (€/MWp vs €/MW: 80 k vs 500 k)
 
 `TechConfig` captures all of those in one frozen dataclass so the unified
-dashboard script reads as: `cfg = TECHS[slug]; run_dashboard(cfg)`.
+dashboard script reads as: `cfg = TECHS[slug]; run_for(cfg)`.
 
-Slide-spec helpers (`build_pdf_slides_spec`) live here too because slide titles
-and y-axis ranges are tech-specific (€/MWp vs €/MW, 80 k vs 500 k axis ranges).
+Anything derivable from the data is deliberately *not* a field here: the
+capacity-curve date range comes from the anchor CSV, and the years shown on
+the monthly PDF page come from the monthly summary.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
 import pandas as pd
 
 from data_loader import (
-    load_da_prices,
+    CAPACITY_CSV,
     load_ned_pv,
     load_ned_wind_offshore,
     load_ned_wind_onshore,
 )
-
-ROOT = Path(__file__).resolve().parent
 
 
 # ----------------------------------------------------------------------- types
@@ -79,9 +78,6 @@ class TechConfig:
     pdf_value_callout_y: float = 78_000.0                # y for 2022-spike callout (annotation)
     pdf_price_callout_y: float = 105.0                   # y for 2022-spike callout (annotation)
 
-    # ----------- subplot end-date for the "installed capacity" curve (wind only)
-    capacity_curve_end: pd.Timestamp | None = None
-
     # ----------- yearly-summary column suffix for clarity in column names
     # Solar uses "PV", Wind uses "Wind"; we set this in derived col names like
     # "Yearly_<tech_col_prefix>_Energy_MWh".
@@ -89,9 +85,6 @@ class TechConfig:
 
     # ----------- whether to emit the "monthly capture-rate-by-year" PDF page
     emit_monthly_pdf_page: bool = True
-
-    # Filled in by __post_init__-style helper below
-    palette: dict[str, str] = field(default_factory=dict)
 
     # ---- derived display labels ------------------------------------------
 
@@ -114,7 +107,7 @@ TECH_SOLAR_PV = TechConfig(
     brand='SOLAR · NL',
     loader=load_ned_pv,
     prod_col='Solar_production_MWh',
-    capacity_csv=ROOT / 'capacity_points_solar_PV_NL_v1.csv',
+    capacity_csv=CAPACITY_CSV['solar_pv'],
     clip_future_prices=True,
     cap_unit='MWp DC',
     cap_unit_short='GWp',
@@ -143,7 +136,7 @@ TECH_WIND_ONSHORE = TechConfig(
     brand='WIND ONSHORE · NL',
     loader=load_ned_wind_onshore,
     prod_col='Wind_production_MWh',
-    capacity_csv=ROOT / 'capacity_points_wind_onshore_NL_v1.csv',
+    capacity_csv=CAPACITY_CSV['wind_onshore'],
     clip_future_prices=False,
     cap_unit='MW AC',
     cap_unit_short='GW',
@@ -163,7 +156,6 @@ TECH_WIND_ONSHORE = TechConfig(
     pdf_value_callout_y=460_000.0,
     pdf_price_callout_y=235.0,
     tech_col_prefix='Wind',
-    capacity_curve_end=pd.Timestamp('2030-12-31', tz='Europe/Amsterdam'),
 )
 
 
@@ -173,7 +165,7 @@ TECH_WIND_OFFSHORE = TechConfig(
     brand='WIND OFFSHORE · NL',
     loader=load_ned_wind_offshore,
     prod_col='Wind_production_MWh',
-    capacity_csv=ROOT / 'capacity_points_wind_offshore_NL_v1.csv',
+    capacity_csv=CAPACITY_CSV['wind_offshore'],
     clip_future_prices=False,
     cap_unit='MW AC',
     cap_unit_short='GW',
@@ -193,7 +185,6 @@ TECH_WIND_OFFSHORE = TechConfig(
     pdf_value_callout_y=460_000.0,
     pdf_price_callout_y=235.0,
     tech_col_prefix='Wind',
-    capacity_curve_end=pd.Timestamp('2025-12-31', tz='Europe/Amsterdam'),
 )
 
 

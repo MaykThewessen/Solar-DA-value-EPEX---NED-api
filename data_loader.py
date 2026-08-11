@@ -25,6 +25,7 @@ import numpy as np
 import pandas as pd
 
 DEFAULT_TZ = 'Europe/Amsterdam'
+ROOT = Path(__file__).resolve().parent
 BIRDCURVE_DB = Path(os.environ.get(
     'BIRDCURVE_DB',
     '/Users/mayk/birdcurve_nl/data/birdcurve.duckdb',
@@ -32,10 +33,27 @@ BIRDCURVE_DB = Path(os.environ.get(
 
 SLOT_HOURS = 0.25  # 15-min slot length, hours
 
+# Installed-capacity anchor points, one CSV per technology. This is the single
+# source of truth: every dashboard resolves capacity through `load_capacity_points`
+# against these files. Never inline an anchor list in a script — two writable
+# copies of the same series drift (the offshore file once held onshore numbers,
+# understating offshore €/MW by a third before anyone noticed).
+CAPACITY_CSV: dict[str, Path] = {
+    'solar_pv': ROOT / 'capacity_points_solar_PV_NL_v1.csv',
+    'wind_onshore': ROOT / 'capacity_points_wind_onshore_NL_v1.csv',
+    'wind_offshore': ROOT / 'capacity_points_wind_offshore_NL_v1.csv',
+}
+
 
 # Module-level DuckDB connection cache (read-only). Re-opening the database for
-# every loader call adds ~50-100ms × 5 calls per dashboard run; cache it. The
-# dashboard process is short-lived so we don't need explicit teardown.
+# every loader call adds ~50-100ms × 5 calls per dashboard run; cache it.
+#
+# Call `close()` as soon as the last loader call of a phase returns. DuckDB's
+# file lock is per-process, not per-mode: `read_only=True` still blocks any
+# writer in another process, so an open handle here stalls the birdcurve_nl
+# CSV->DuckDB backfill for as long as it lives. A dashboard run spends seconds
+# querying and minutes rendering; holding the connection across the render
+# phase is what fails `backfill_duckdb_from_csv.py` (its retry budget is 31s).
 _CON: duckdb.DuckDBPyConnection | None = None
 
 
@@ -51,6 +69,18 @@ def _connect() -> duckdb.DuckDBPyConnection:
         _CON = duckdb.connect(str(BIRDCURVE_DB), read_only=True)
         _CON.execute("SET TimeZone='UTC'")
     return _CON
+
+
+def close() -> None:
+    """Release the cached connection, and with it the DuckDB file lock.
+
+    Idempotent, and safe to call between load phases: the next loader call
+    simply reopens. Cheap to be liberal with it, expensive to forget it.
+    """
+    global _CON
+    if _CON is not None:
+        _CON.close()
+        _CON = None
 
 
 def _to_local(s: pd.Series, tz: str) -> pd.Series:

@@ -6,6 +6,7 @@ Public surface:
     gradient_fills(x, y, hex_color, n_layers=6) -> list[go.Scatter]
     bar_gradient_shapes(x_idx, y, hex_color, xref, yref) -> list[dict]
     add_dt_hours(df, time_col='time') -> df with `_dt_h` column (median-fallback, not bfill)
+    fmt_table_value(v, fmt) -> str                                          # house number style
     last_complete_year(last_time: pd.Timestamp) -> int
     vw_price_groupby(df, group_col, prod_col, price_col) -> pd.Series       # vectorised capture price
     year_color_map(years, palette='solar'|'wind', highlight_recent=0|2)     # year -> hex color
@@ -38,7 +39,7 @@ _dt_h fix:
 from __future__ import annotations
 
 import io
-import warnings
+import math
 from datetime import datetime, timezone
 from typing import Sequence
 
@@ -66,6 +67,69 @@ CLAUDE_PALETTE: dict[str, str] = dict(
     blue='#4C6B8A',
 )
 FONT_FAMILY = 'Inter, Helvetica Neue, Arial, sans-serif'
+
+
+# ------------------------------------------------------------------ wire format
+
+# Below this length the byte saving is noise, so the array is left exactly as the
+# builder made it. That keeps every small trace (monthly lines, capacity anchors,
+# table columns) byte-identical, which in turn keeps the PDF and table output
+# identical and confines the diff to the one trace that actually costs megabytes.
+COMPACT_MIN_POINTS = 5_000
+
+
+def _date_axis_key(trace: go.Scatter) -> str:
+    """Layout key of the x-axis a trace is drawn on ('x2' -> 'xaxis2')."""
+    ref = getattr(trace, 'xaxis', None) or 'x'
+    return 'xaxis' if ref == 'x' else f'xaxis{ref[1:]}'
+
+
+def compact_figure_arrays(fig: go.Figure) -> go.Figure:
+    """Shrink the wire format of large traces, in place, before writing HTML.
+
+    Two levers, both measured on this repo's production pages (12.2 MB each,
+    of which a single 300k-point trace was 11.9 MB):
+
+    1. A datetime `x` array serialises as microsecond ISO strings, 29 bytes per
+       point (8.7 MB here). Plotly reads a plain *number* on a date axis as epoch
+       ms, and numpy arrays go out as base64 typed arrays, so the same series
+       costs 8 bytes per point once the axis is pinned to `type='date'`. The
+       conversion drops the tz offset first, which is what plotly.py already does
+       when it serialises a tz-aware series, so displayed wall time is unchanged.
+    2. A float64 `y` array halves as float32 (3.2 -> 1.6 MB). float32 holds ~7
+       significant digits, far past any GW or EUR/MWh these figures plot.
+
+    Not levers, verified rather than assumed: rounding the values (byte length
+    follows the dtype, not the decimals) and gzipping the page (a browser opening
+    a local `.html.gz` will not decompress it).
+    """
+    for trace in fig.data:
+        x = getattr(trace, 'x', None)
+        if x is not None and len(x) >= COMPACT_MIN_POINTS:
+            times = pd.DatetimeIndex(x) if _is_datetime_array(x) else None
+            if times is not None:
+                if times.tz is not None:
+                    times = times.tz_localize(None)
+                # datetime64[ms] -> float64: exact, ms integers are far inside
+                # the 2**53 range where float64 is lossless.
+                trace.x = times.to_numpy('datetime64[ms]').astype('float64')
+                fig.layout[_date_axis_key(trace)].type = 'date'
+
+        y = getattr(trace, 'y', None)
+        if y is not None and len(y) >= COMPACT_MIN_POINTS:
+            arr = np.asarray(y)
+            if arr.dtype == np.float64:
+                trace.y = arr.astype(np.float32)
+    return fig
+
+
+def _is_datetime_array(x) -> bool:
+    """True when a trace's x holds timestamps rather than numbers or categories."""
+    arr = np.asarray(x)
+    if arr.dtype.kind == 'M':
+        return True
+    # A tz-aware pandas Series arrives as dtype object holding Timestamps.
+    return arr.dtype == object and isinstance(arr[0], pd.Timestamp)
 
 
 # ------------------------------------------------------------------ utility
@@ -100,16 +164,18 @@ def gradient_fills(x, y_vals, hex_color: str, n_layers: int = 6) -> list[go.Scat
 
 def bar_gradient_shapes(x_idx, y_vals, hex_color: str,
                         xref: str = 'x', yref: str = 'y',
-                        n_layers: int = 80) -> list[dict]:
+                        n_layers: int = 80, half_w: float = 0.34) -> list[dict]:
     """Per-bar vertical gradient as many thin stacked rect shapes (default 80 layers).
 
     Plotly bar markers don't support gradients natively, so we paint each bar as a
     stack of tall-thin rectangles with smoothly increasing alpha. n_layers ~ 80
     is the threshold above which banding stops being visible at A4 200 dpi.
+
+    `half_w` is the bar half-width in x-axis units: 0.34 for a single series,
+    ~0.18 for each member of a grouped (side-by-side) pair.
     """
     r, g, b = hex_to_rgb(hex_color)
     shapes: list[dict] = []
-    half_w = 0.34
     for xi, v in zip(x_idx, y_vals):
         if v is None or pd.isna(v) or v == 0:
             continue
@@ -397,22 +463,9 @@ def build_themed_slide_fig(slide: dict, years_full: list[str],
                 showlegend=True,
             ))
             x_centers = [i + offsets[ti] for i in range(len(x_used))]
-            r, g, b = hex_to_rgb(color)
-            for xc, v in zip(x_centers, y_used):
-                if v is None or pd.isna(v) or v == 0:
-                    continue
-                n = 80
-                for k in range(n):
-                    y0 = v * (k / n)
-                    y1 = v * ((k + 1) / n)
-                    alpha = 0.20 + 0.70 * (k / max(n - 1, 1))
-                    fig.add_shape(
-                        type='rect', xref='x', yref='y',
-                        x0=xc - half_w_each, x1=xc + half_w_each, y0=y0, y1=y1,
-                        line=dict(width=0),
-                        fillcolor=f'rgba({r},{g},{b},{alpha:.3f})',
-                        layer='below',
-                    )
+            for shp in bar_gradient_shapes(x_centers, y_used, color,
+                                           half_w=half_w_each):
+                fig.add_shape(**shp)
 
     else:
         raise ValueError(f"unknown slide kind: {kind}")
@@ -548,13 +601,35 @@ def build_monthly_metric_by_year_fig(monthly_summary: pd.DataFrame,
 
 # ------------------------------------------------------------------ table page
 
-def _fmt_num(v, fmt: str) -> str:
+def fmt_table_value(v, fmt: str) -> str:
+    """Format one table cell in house number style. Empty string for missing values.
+
+    House style: no thousands separator below 10000 ("4610"), a dot from 10000 up
+    ("24.302"). `fmt` is an ordinary format spec; if it requests grouping with
+    `,` the grouping is rewritten here, so callers never hand-roll separators.
+
+    Shared by the HTML and PDF yearly tables. They used to format independently
+    (`int()` truncation with dots on one side, `'{:,.0f}'` rounding with commas
+    on the other) and disagreed on both the last digit and the separator.
+    """
     if v is None or pd.isna(v):
         return ''
+    if isinstance(v, float) and not math.isfinite(v):
+        return ''
     try:
-        return fmt.format(v)
-    except Exception:
+        s = fmt.format(v)
+    except (TypeError, ValueError):
         return str(v)
+    if ',' not in s:
+        return s
+    whole, _, frac = s.partition('.')
+    if len(whole.lstrip('-').replace(',', '')) <= 4:
+        whole = whole.replace(',', '')
+    else:
+        whole = whole.replace(',', '.')
+    # A dot is already spoken for as the thousands separator, so a value that
+    # carries both needs the EU decimal comma to stay unambiguous.
+    return f'{whole},{frac}' if frac else whole
 
 
 def build_yearly_summary_table_fig(yst: pd.DataFrame, columns_spec: list[dict],
@@ -577,7 +652,7 @@ def build_yearly_summary_table_fig(yst: pd.DataFrame, columns_spec: list[dict],
         if col_name is None or col_name == 'year_label':
             cells_values.append(yst_desc['year_label'].tolist())
         else:
-            cells_values.append([_fmt_num(v, fmt) for v in yst_desc[col_name]])
+            cells_values.append([fmt_table_value(v, fmt) for v in yst_desc[col_name]])
     n_rows = len(yst_desc)
     row_fill = [[p['panel'] if i % 2 == 0 else p['bg'] for i in range(n_rows)]] * len(headers)
 

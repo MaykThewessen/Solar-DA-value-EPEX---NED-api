@@ -19,14 +19,17 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Callable, Literal
 
 import numpy as np
 import pandas as pd
 import plotly.graph_objs as go
 
-from dashboard_common import vw_price_groupby
+from dashboard_common import compact_figure_arrays, last_complete_year, vw_price_groupby
 from data_loader import (
+    CAPACITY_CSV,
+    load_capacity_points,
     load_da_prices,
     load_ned_pv,
     load_ned_wind_offshore,
@@ -49,8 +52,9 @@ CapacityFitMode = Literal['polyfit', 'piecewise']
 class ProfileFactorTechConfig:
     """Per-technology config for the profile-factor dashboard.
 
-    Until a shared `tech_configs.py` exists (Agent B), this dataclass lives
-    locally. It can be lifted out unchanged once `TechConfig` is available.
+    Installed capacity is *not* configured here beyond a path: the anchors come
+    from `data_loader.CAPACITY_CSV`, the same files the market-prices dashboard
+    reads. The trend window's upper bound is derived from the data, not stored.
     """
     key: str                                    # 'pv' | 'wind_onshore' | 'wind_offshore'
     loader: Callable[[], pd.DataFrame]          # returns DataFrame with 'time' + production col
@@ -61,10 +65,9 @@ class ProfileFactorTechConfig:
     capacity_axis_label: str                    # axis title for capacity
     slope_unit: str                             # '%/GWp' | '%/GW'
     output_stem: str                            # 'pv_profile_factor_vs_capacity_dashboard' | ...
-    capacity_points: list[tuple[pd.Timestamp, float]]  # (date, MW capacity) anchors
+    capacity_csv: Path                          # (date, MW) anchors — see data_loader.CAPACITY_CSV
     capacity_fit_mode: CapacityFitMode          # 'polyfit' (global linear) | 'piecewise' (linear between anchors)
     trend_year_min: int                         # first year used for trend fit
-    trend_year_max: int = 2025                  # last year used for trend fit
     trend_year_excluded: int = 2022             # outlier year excluded from trend fit
     x_axis_range: tuple[float, float] = (0.0, 100.0)
     extrapolation_x_max: float = 200.0          # where to stop the exponential extrapolation
@@ -82,64 +85,6 @@ class ProfileFactorTechConfig:
 
 # ---------------------------------------------------------------- tech configs
 
-def _ts(date: str) -> pd.Timestamp:
-    return pd.Timestamp(date, tz=TZ)
-
-
-_PV_CAPACITY_POINTS: list[tuple[pd.Timestamp, float]] = [
-    # Known data points for installed PV capacity NL (MWp DC) at year-end.
-    # Sources: CBS longread / opendata.cbs.nl 85005NED; 2025 outlook per @BM_Visser.
-    (_ts('2018-01-01'),  2911.0),
-    (_ts('2018-12-31'),  4609.0),
-    (_ts('2019-12-31'),  7226.0),
-    (_ts('2020-12-31'), 11108.0),
-    (_ts('2021-12-31'), 14822.0),
-    (_ts('2022-12-31'), 19536.0),
-    (_ts('2023-12-31'), 24302.0),
-    (_ts('2024-12-31'), 28620.0),
-    (_ts('2025-12-31'), 28620.0 + (80 * 12) / 0.60),  # lower install estimate update
-    (_ts('2026-12-31'), 28620.0 + 1600 + 1440),
-]
-
-_WIND_ONSHORE_CAPACITY_POINTS: list[tuple[pd.Timestamp, float]] = [
-    # Source: Birdview scenario file "_Step3 BESS-PV_GWp_Gas-price_CO2_Futures_v20 Central.xlsx",
-    # sheet "Wind NL", column E (Onshore GW end-of-year).
-    (_ts('2017-12-31'), 3245.0),
-    (_ts('2018-12-31'), 3436.0),
-    (_ts('2019-12-31'), 3527.0),
-    (_ts('2020-12-31'), 4188.0),
-    (_ts('2021-12-31'), 5186.0),
-    (_ts('2022-12-31'), 6131.0),
-    (_ts('2023-12-31'), 6757.0),
-    (_ts('2024-12-31'), 6965.0),
-    (_ts('2025-12-31'), 7045.0),  # outlook (Central)
-    (_ts('2026-12-31'), 7125.0),
-    (_ts('2027-12-31'), 7205.0),
-    (_ts('2028-12-31'), 7285.0),
-    (_ts('2029-12-31'), 7365.0),
-    (_ts('2030-12-31'), 7445.0),
-]
-
-_WIND_OFFSHORE_CAPACITY_POINTS: list[tuple[pd.Timestamp, float]] = [
-    # Source: Birdview scenario file "_Step3 BESS-PV_GWp_Gas-price_CO2_Futures_v20 Central.xlsx",
-    # sheet "Wind NL", column F (Offshore GW end-of-year).
-    (_ts('2017-12-31'),  957.0),
-    (_ts('2018-12-31'),  957.0),
-    (_ts('2019-12-31'),  957.0),
-    (_ts('2020-12-31'), 2460.0),  # Borssele I+II + III+IV
-    (_ts('2021-12-31'), 2460.0),
-    (_ts('2022-12-31'), 2570.0),
-    (_ts('2023-12-31'), 3978.0),  # HKZ I-IV
-    (_ts('2024-12-31'), 4748.0),  # + HKN
-    (_ts('2025-12-31'), 4748.0),  # outlook (Central)
-    (_ts('2026-12-31'), 4748.0),
-    (_ts('2027-12-31'), 5136.0),
-    (_ts('2028-12-31'), 5523.0),
-    (_ts('2029-12-31'), 6279.0),
-    (_ts('2030-12-31'), 8279.0),  # HKW + IJmuiden Ver build-out
-]
-
-
 TECH_CONFIGS: dict[str, ProfileFactorTechConfig] = {
     'pv': ProfileFactorTechConfig(
         key='pv',
@@ -151,7 +96,7 @@ TECH_CONFIGS: dict[str, ProfileFactorTechConfig] = {
         capacity_axis_label='Installed PV Capacity NL (GWp DC) yearly avg',
         slope_unit='%/GWp',
         output_stem='pv_profile_factor_vs_capacity_dashboard',
-        capacity_points=_PV_CAPACITY_POINTS,
+        capacity_csv=CAPACITY_CSV['solar_pv'],
         capacity_fit_mode='polyfit',
         trend_year_min=2018,
         x_axis_range=(0.0, 100.0),
@@ -170,7 +115,7 @@ TECH_CONFIGS: dict[str, ProfileFactorTechConfig] = {
         capacity_axis_label='Installed Onshore Wind Capacity NL (GW AC) yearly avg',
         slope_unit='%/GW',
         output_stem='wind_onshore_profile_factor_vs_capacity_dashboard',
-        capacity_points=_WIND_ONSHORE_CAPACITY_POINTS,
+        capacity_csv=CAPACITY_CSV['wind_onshore'],
         capacity_fit_mode='piecewise',
         trend_year_min=2019,
         x_axis_range=(0.0, 50.0),
@@ -186,7 +131,7 @@ TECH_CONFIGS: dict[str, ProfileFactorTechConfig] = {
         capacity_axis_label='Installed Offshore Wind Capacity NL (GW AC) yearly avg',
         slope_unit='%/GW',
         output_stem='wind_offshore_profile_factor_vs_capacity_dashboard',
-        capacity_points=_WIND_OFFSHORE_CAPACITY_POINTS,
+        capacity_csv=CAPACITY_CSV['wind_offshore'],
         capacity_fit_mode='piecewise',
         trend_year_min=2019,
         x_axis_range=(0.0, 50.0),
@@ -212,9 +157,10 @@ class CapacityModel:
     polyfit_coeffs: np.ndarray | None   # for mode='polyfit', length-2 [slope, intercept] on int64 ns
 
     @classmethod
-    def build(cls, mode: CapacityFitMode, points: list[tuple[pd.Timestamp, float]]) -> 'CapacityModel':
-        x = pd.DatetimeIndex([p[0] for p in points]).view('i8').astype(np.int64)
-        y = np.asarray([p[1] for p in points], dtype=float)
+    def build(cls, mode: CapacityFitMode, anchors: pd.DataFrame) -> 'CapacityModel':
+        """Build from a `load_capacity_points` frame (columns `date`, `MW`, sorted asc)."""
+        x = pd.DatetimeIndex(anchors['date']).view('i8').astype(np.int64)
+        y = anchors['MW'].to_numpy(dtype=float)
         coeffs = np.polyfit(x.astype(np.float64), y, 1) if mode == 'polyfit' else None
         return cls(mode=mode, x_anchors_i8=x, y_anchors=y, polyfit_coeffs=coeffs)
 
@@ -313,10 +259,12 @@ def _year_color_map(years: list[int]) -> dict[int, str]:
     return {y: DISTINCT_COLORS[i % len(DISTINCT_COLORS)] for i, y in enumerate(sorted(years))}
 
 
-def _select_trend_data(plot_data: pd.DataFrame, cfg: ProfileFactorTechConfig) -> pd.DataFrame:
+def _select_trend_data(plot_data: pd.DataFrame, cfg: ProfileFactorTechConfig,
+                       trend_year_max: int) -> pd.DataFrame:
+    """Years eligible for the trend fit: complete, in range, and not the outlier year."""
     mask = (
         (plot_data['year'] >= cfg.trend_year_min)
-        & (plot_data['year'] <= cfg.trend_year_max)
+        & (plot_data['year'] <= trend_year_max)
         & (plot_data['year'] != cfg.trend_year_excluded)
     )
     return plot_data.loc[mask].copy()
@@ -326,6 +274,7 @@ def build_figure(
     plot_data: pd.DataFrame,
     cfg: ProfileFactorTechConfig,
     model: CapacityModel,
+    trend_year_max: int,
 ) -> tuple[go.Figure, dict]:
     """Build the plotly figure. Returns (fig, summary_dict)."""
     summary: dict = {
@@ -379,12 +328,12 @@ def build_figure(
         _add_scatter_points(fig, plot_data, cfg)
         return fig, summary
 
-    trend_data = _select_trend_data(plot_data, cfg)
+    trend_data = _select_trend_data(plot_data, cfg, trend_year_max)
     if len(trend_data) > 2:
         x_vals = trend_data['Capacity_GW_July1'].to_numpy()
         y_vals = trend_data['Yearly_Profile_Factor'].to_numpy()
         summary['trend_year_range_label'] = (
-            f'{cfg.trend_year_min}-{cfg.trend_year_max} (excluding {cfg.trend_year_excluded})'
+            f'{cfg.trend_year_min}-{trend_year_max} (excluding {cfg.trend_year_excluded})'
         )
     else:
         x_vals = plot_data['Capacity_GW_July1'].to_numpy()
@@ -395,8 +344,8 @@ def build_figure(
     summary['coeffs_linear'] = coeffs_linear
     summary['slope'] = float(coeffs_linear[0])
 
-    # Capacity at Jan 1 of the year after trend_year_max.
-    jan_1_after = pd.Timestamp(f'{cfg.trend_year_max + 1}-01-01', tz=TZ)
+    # Capacity at Jan 1 of the year after the last complete year.
+    jan_1_after = pd.Timestamp(f'{trend_year_max + 1}-01-01', tz=TZ)
     jan_1_capacity_gw = model.evaluate_one(jan_1_after) / 1000.0
     summary['jan_1_capacity_gw'] = jan_1_capacity_gw
 
@@ -415,12 +364,12 @@ def build_figure(
         name='Linear Trend',
         line=dict(color='red', width=2),
         hovertemplate=(
-            f'<b>Linear Trend (from {cfg.trend_year_min} data to Jan 1, {cfg.trend_year_max + 1})</b><br>'
+            f'<b>Linear Trend (from {cfg.trend_year_min} data to Jan 1, {trend_year_max + 1})</b><br>'
             f'<b>Equation:</b> y = {coeffs_linear[0]:.2f}x + {coeffs_linear[1]:.2f}<br>'
             f'<b>Slope:</b> {coeffs_linear[0]:.2f} {cfg.slope_unit}<br>'
             f'<b>Starts at:</b> {x_first:.1f} {cfg.capacity_unit.split()[0]} ({y_first:.1f}%)<br>'
             f'<b>Ends at:</b> {jan_1_capacity_gw:.1f} {cfg.capacity_unit.split()[0]} '
-            f'(Jan 1, {cfg.trend_year_max + 1})<br>'
+            f'(Jan 1, {trend_year_max + 1})<br>'
             f'<extra></extra>'
         ),
         showlegend=True,
@@ -469,7 +418,7 @@ def build_figure(
                 name='Exponential Extrapolation',
                 line=dict(color='orange', width=2, dash='dash'),
                 hovertemplate=(
-                    f'<b>Exponential Extrapolation (from Jan 1, {cfg.trend_year_max + 1})</b><br>'
+                    f'<b>Exponential Extrapolation (from Jan 1, {trend_year_max + 1})</b><br>'
                     f'<b>Capacity:</b> %{{x:.1f}} {cfg.capacity_unit.split()[0]}<br>'
                     '<b>Profile Factor:</b> %{y:.1f}%<br>'
                     f'<b>Equation:</b> y = {a_adj:.2f} * e^({b:.3f}*(x-{jan_1_capacity_gw:.1f}))<br>'
@@ -655,16 +604,26 @@ def _add_slope_annotation(fig: go.Figure, cfg: ProfileFactorTechConfig, summary:
 
 def run_one(tech: str, *, open_html: bool = False, write_html: bool = True) -> None:
     cfg = TECH_CONFIGS[tech]
-    model = CapacityModel.build(cfg.capacity_fit_mode, cfg.capacity_points)
+    anchors = load_capacity_points(cfg.capacity_csv, tz=TZ)
+    model = CapacityModel.build(cfg.capacity_fit_mode, anchors)
     df_combined, plot_data = compute_yearly_plot_data(cfg, model)
+
+    # The trend fit must not include a part-year profile factor, so it stops at
+    # the last fully-observed calendar year. Derived, never hardcoded: a fixed
+    # `trend_year_max` silently freezes the fit the moment the year rolls over.
+    trend_year_max = last_complete_year(df_combined['time'].max())
 
     print(f"\n=== {cfg.label_short} ===")
     print('Combined data shape:', df_combined.shape)
     print('Date range:', df_combined['time'].min(), 'to', df_combined['time'].max())
+    print(f'Capacity anchors: {cfg.capacity_csv.name} '
+          f'({len(anchors)} points, {anchors["date"].min():%Y} - {anchors["date"].max():%Y})')
+    print(f'Trend window: {cfg.trend_year_min} - {trend_year_max} '
+          f'(excluding {cfg.trend_year_excluded})')
     print('\nYearly data for plotting:')
     print(plot_data.round(1))
 
-    fig, summary = build_figure(plot_data, cfg, model)
+    fig, summary = build_figure(plot_data, cfg, model, trend_year_max)
 
     pdf_path = f'{cfg.output_stem}.pdf'
     svg_path = f'{cfg.output_stem}.svg'
@@ -673,6 +632,9 @@ def run_one(tech: str, *, open_html: bool = False, write_html: bool = True) -> N
     if write_html:
         html_path = f'{cfg.output_stem}.html'
         # B1 fix: use the CDN to avoid embedding plotly.js (~3 MB) per HTML.
+        # Compact only after the images are written: kaleido renders this figure
+        # too, and only the HTML pays for the wire format.
+        compact_figure_arrays(fig)
         fig.write_html(html_path, auto_open=open_html, include_plotlyjs='cdn')
         print(f'\nDashboard created:')
         print(f'  - HTML: {html_path}')
@@ -681,10 +643,11 @@ def run_one(tech: str, *, open_html: bool = False, write_html: bool = True) -> N
     print(f'  - PDF:  {pdf_path}')
     print(f'  - SVG:  {svg_path}')
 
-    _print_summary(plot_data, summary, cfg)
+    _print_summary(plot_data, summary, cfg, trend_year_max)
 
 
-def _print_summary(plot_data: pd.DataFrame, summary: dict, cfg: ProfileFactorTechConfig) -> None:
+def _print_summary(plot_data: pd.DataFrame, summary: dict, cfg: ProfileFactorTechConfig,
+                   trend_year_max: int) -> None:
     print(f'Data points: {len(plot_data)} years')
     print(f"Years covered: {int(plot_data['year'].min())} - {int(plot_data['year'].max())}")
     print(f"Capacity range: {plot_data['Capacity_GW_July1'].min():.2f} - "
@@ -696,7 +659,7 @@ def _print_summary(plot_data: pd.DataFrame, summary: dict, cfg: ProfileFactorTec
         return
 
     # Correlation across the trend-fit window.
-    trend = _select_trend_data(plot_data, cfg)
+    trend = _select_trend_data(plot_data, cfg, trend_year_max)
     if len(trend) > 2:
         corr = float(np.corrcoef(trend['Capacity_GW_July1'].to_numpy(),
                                  trend['Yearly_Profile_Factor'].to_numpy())[0, 1])
@@ -712,7 +675,7 @@ def _print_summary(plot_data: pd.DataFrame, summary: dict, cfg: ProfileFactorTec
     print(f"Linear trend starts at: {summary['x_trend_start']:.1f} {cfg.capacity_unit.split()[0]} "
           f"({summary['y_trend_start']:.1f}%)")
     print(f"Linear trend ends at: {summary['jan_1_capacity_gw']:.1f} {cfg.capacity_unit.split()[0]} "
-          f"(January 1, {cfg.trend_year_max + 1})")
+          f"(January 1, {trend_year_max + 1})")
 
     if summary['x_at_zero_linear'] is not None:
         print(f"Linear trend reaches 0% at: {round(summary['x_at_zero_linear'], 0):.0f} "
