@@ -7,6 +7,16 @@ Validates:
     * yearly summary internal invariants hold (capture rate <= 100% in normal years,
       curtailment % matches definition, no NaN in installed capacity rows where data exists)
 
+Every dashboard output path is a bare relative filename resolved against the
+process cwd, so the dashboards run here in a throwaway directory. Two reasons:
+the repo's committed deliverables are never touched (a test run concurrent with
+`refresh_market_data.py` step 5 would otherwise interleave writes into the same
+HTML and PDF files), and the "output produced" assertions become real, since a
+leftover file from an earlier run can no longer satisfy them.
+
+Reads are unaffected: `data_loader` resolves the capacity CSVs and the DuckDB
+warehouse from absolute paths, independent of cwd.
+
 Run:
     ~/.pixi/envs/main/bin/python test_dashboards.py
 """
@@ -15,6 +25,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import numpy as np
@@ -86,29 +97,27 @@ def test_common_module():
 
 # ---------------------------------------------------------------- 2) run dashboards + check outputs
 
-def _run_dashboard(script: str) -> None:
-    res = subprocess.run([PY, script], cwd=ROOT, capture_output=True, text=True, timeout=600)
+def _run_dashboard(script: str, *args: str, out_dir: Path) -> None:
+    """Run one dashboard script with `out_dir` as its cwd, so outputs land there.
+
+    The script path must be absolute: it puts the repo (not `out_dir`) on
+    `sys.path[0]`, which is how the child still imports `data_loader` and friends.
+    """
+    label = ' '.join([script, *args])
+    print(f"  running {label} ...")
+    res = subprocess.run([PY, str(ROOT / script), *args], cwd=out_dir,
+                         capture_output=True, text=True, timeout=600)
     if res.returncode != 0:
         print(res.stdout[-2000:])
         print('STDERR:', res.stderr[-2000:])
-        raise AssertionError(f'{script} exited {res.returncode}')
+        raise AssertionError(f'{label} exited {res.returncode}')
+    print("  done")
 
 
-def test_run_all():
+def test_run_all(out_dir: Path):
     _section('2) run all dashboards')
-    print("  running Dashboard_market_prices_NL.py ...")
-    _run_dashboard('Dashboard_market_prices_NL.py')
-    print("  done")
-    print("  running Dashboard_profile_factor_vs_capacity.py all ...")
-    res = subprocess.run(
-        [PY, 'Dashboard_profile_factor_vs_capacity.py', 'all'],
-        cwd=ROOT, capture_output=True, text=True, timeout=600,
-    )
-    if res.returncode != 0:
-        print(res.stdout[-2000:])
-        print('STDERR:', res.stderr[-2000:])
-        raise AssertionError(f'Dashboard_profile_factor_vs_capacity.py exited {res.returncode}')
-    print("  done")
+    _run_dashboard('Dashboard_market_prices_NL.py', out_dir=out_dir)
+    _run_dashboard('Dashboard_profile_factor_vs_capacity.py', 'all', out_dir=out_dir)
 
     expected = [
         'solar_yearly_slides.pdf', 'solar_yearly_slides.html',
@@ -122,29 +131,32 @@ def test_run_all():
         'wind_offshore_profile_factor_vs_capacity_dashboard.pdf',
     ]
     for fname in expected:
-        p = ROOT / fname
+        p = out_dir / fname
         _check(p.exists() and p.stat().st_size > 1_000, f'{fname} produced (>1 KB)')
 
 
 # ---------------------------------------------------------------- 3) cross-PDF size sanity
 
-def test_pdfs_reasonable():
+def test_pdfs_reasonable(out_dir: Path):
     _section('3) PDF size sanity')
     for f in ['solar_yearly_slides.pdf', 'wind_onshore_yearly_slides.pdf', 'wind_offshore_yearly_slides.pdf']:
-        size = (ROOT / f).stat().st_size
+        size = (out_dir / f).stat().st_size
         _check(50_000 < size < 10_000_000, f'{f}: {size / 1024:.0f} KB within sane range')
 
 
 # ---------------------------------------------------------------- runner
 
 def main() -> int:
-    try:
-        test_common_module()
-        test_run_all()
-        test_pdfs_reasonable()
-    except AssertionError as e:
-        print(f"\nFAIL: {e}")
-        return 1
+    with tempfile.TemporaryDirectory(prefix='dashboard_test_') as td:
+        out_dir = Path(td)
+        print(f"Dashboard outputs -> {out_dir}")
+        try:
+            test_common_module()
+            test_run_all(out_dir)
+            test_pdfs_reasonable(out_dir)
+        except AssertionError as e:
+            print(f"\nFAIL: {e}")
+            return 1
     print("\nAll checks passed.")
     return 0
 
