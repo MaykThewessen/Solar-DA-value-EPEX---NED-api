@@ -29,6 +29,7 @@ import plotly.graph_objs as go
 from dashboard_common import compact_figure_arrays, last_complete_year, vw_price_groupby
 from data_loader import (
     CAPACITY_CSV,
+    close as close_db,
     load_capacity_points,
     load_da_prices,
     load_ned_pv,
@@ -607,6 +608,11 @@ def run_one(tech: str, *, open_html: bool = False, write_html: bool = True) -> N
     anchors = load_capacity_points(cfg.capacity_csv, tz=TZ)
     model = CapacityModel.build(cfg.capacity_fit_mode, anchors)
     df_combined, plot_data = compute_yearly_plot_data(cfg, model)
+
+    # Last database read; everything below is in-memory. Release the lock before
+    # the render phase so birdcurve_nl's CSV->DuckDB backfill can acquire it.
+    # See data_loader.close().
+    close_db()
 
     # The trend fit must not include a part-year profile factor, so it stops at
     # the last fully-observed calendar year. Derived, never hardcoded: a fixed

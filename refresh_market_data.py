@@ -131,6 +131,12 @@ def report() -> bool:
         print(f"  {label:<18}{len(times):>9,} rows  "
               f"{times.min():%Y-%m-%d} -> {last:%Y-%m-%d %H:%M}  "
               f"lag {lag_hours:6.1f}h{'   <-- STALE' if stale else ''}")
+
+    # Last database read in this process: step 5 shells out to the dashboards,
+    # which open their own connections. Holding this one would keep the file
+    # locked for the whole render phase and defeat the dashboards' own release.
+    data_loader.close()
+
     if not all_fresh:
         print(f"\n  A series trails the clock by over {STALE_AFTER_HOURS:.0f}h. "
               "Check the fetcher output above for an upstream API error.")

@@ -27,6 +27,7 @@ import plotly.graph_objs as go
 from plotly.subplots import make_subplots
 
 from data_loader import (
+    close as close_db,
     interp_capacity,
     load_capacity_points,
     load_da_prices,
@@ -1295,9 +1296,13 @@ def run_for(cfg: TechConfig) -> None:
 
     df, anchors = _load_combined(cfg)
 
-    # TODO(you): release the DuckDB read lock here — everything below this line
-    # is pandas/plotly on in-memory frames and touches no database.
-    # See data_loader.close().
+    # Everything below this line is pandas/plotly on in-memory frames and
+    # touches no database, so drop the read lock now. DuckDB's file lock is
+    # per-process even in read-only mode, and rendering takes minutes against
+    # a 31s retry budget in birdcurve_nl's backfill. Closing per tech rather
+    # than once at exit gives that writer a window between each tech, at the
+    # cost of a ~50-100ms reopen on the next one.
+    close_db()
 
     _print_capacity_banner(cfg, anchors)
     _save_capacity_qa_plot(cfg, df, anchors)
